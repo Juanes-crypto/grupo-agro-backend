@@ -35,6 +35,13 @@ const serviceSchema = mongoose.Schema(
             default: 0,
             min: [0, 'El precio no puede ser negativo.'],
         },
+        // ⭐ AÑADIDO: Campo category ⭐
+        category: {
+            type: String,
+            required: [true, 'Por favor, selecciona una categoría para el servicio.'],
+            trim: true,
+            maxlength: [50, 'La categoría no puede exceder los 50 caracteres.'],
+        },
         isTradable: { // Si el servicio se puede ofrecer en trueque
             type: Boolean,
             default: false,
