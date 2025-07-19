@@ -25,10 +25,17 @@ const productSchema = mongoose.Schema({
         type: String,
         required: true,
     },
-    quantity: {
-        type: String, // Manteniendo como String para flexibilidad (ej. "10 kg", "5 unidades")
+    // ⭐ CAMBIOS CLAVE AQUÍ: 'quantity' se divide en 'stock' y 'unit' ⭐
+    stock: { // Cantidad disponible (numérico)
+        type: Number,
         required: true,
-        default: '0 unidades',
+        default: 0,
+        min: 0, // Asegura que el stock no sea negativo
+    },
+    unit: { // Unidad de medida (ej. "kg", "unidades", "litros")
+        type: String,
+        required: true,
+        default: 'unidades',
     },
     imageUrl: { // URL de la imagen del producto en Cloudinary
         type: String,
@@ -40,11 +47,10 @@ const productSchema = mongoose.Schema({
         required: true,
         default: true, // Por defecto, los productos se publican al crearse
     },
-    // ✨ CAMPO NUEVO Y SOLUCIÓN PARA EL PUNTO 6 ✨
     isTradable: { // Campo para indicar si el producto es truequeable
         type: Boolean,
-        required: true, // Se recomienda que este campo sea requerido para claridad
-        default: false, // Por defecto, no es truequeable a menos que se especifique
+        required: true, 
+        default: false, 
     },
 }, {
     timestamps: true, // Agrega createdAt y updatedAt automáticamente
