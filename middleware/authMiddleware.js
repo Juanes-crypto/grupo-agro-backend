@@ -13,7 +13,10 @@ const protect = asyncHandler(async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       req.user = await User.findById(decoded.id).select('-password');
-
+      // Dentro de protect, después de req.user = await User.findById(decoded.id).select('-password');
+console.log('Middleware Auth - ID del usuario del token decodificado:', decoded.id);
+console.log('Middleware Auth - ID del usuario encontrado en DB (req.user._id):', req.user._id);
+console.log('Middleware Auth - Email del usuario encontrado:', req.user.email); // Opcional, pero útil
       if (!req.user) {
         res.status(401);
         throw new Error('No autorizado, token fallido: usuario no encontrado');

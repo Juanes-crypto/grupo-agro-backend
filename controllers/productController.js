@@ -86,31 +86,29 @@ const getMyProducts = asyncHandler(async (req, res) => {
 // @route   POST /api/products
 // @access  Private (requiere token de autenticación)
 const createProduct = asyncHandler(async (req, res) => {
-    const { name, description, price, category, quantity, isTradable } = req.body;
+    // ⭐ AÑADIDO: console.logs para depuración ⭐
+    console.log('ProductController - Iniciando createProduct...');
+    if (req.user) {
+        console.log('ProductController - ID de usuario recibido de req.user:', req.user._id);
+        console.log('ProductController - Email de usuario recibido de req.user:', req.user.email);
+    } else {
+        console.log('ProductController - req.user es UNDEFINED o NULL!');
+    }
+    console.log('ProductController - isPublished recibido en req.body:', req.body.isPublished);
+    // ⭐ FIN console.logs ⭐
+
+    const { name, description, price, category, quantity, isTradable, isPublished } = req.body; // Asegúrate de desestructurar isPublished
     const imageUrl = req.file ? req.file.path : null;
 
-    // ✨ CAMBIO AQUÍ: isPublished es false por defecto al crear ✨
-    // Solo si el usuario ES premium, sus productos NO se publican al crearse.
-    // Si no es premium, se publican por defecto (como era antes).
-    const user = await User.findById(req.user.id);
-    if (!user) {
-        res.status(401);
-        throw new Error('Usuario no autorizado');
-    }
-
-    // Si el usuario es premium, el producto se crea como NO publicado por defecto
-    // Si no es premium, se crea publicado por defecto (isPublished: true)
-    const isPublishedDefault = user.isPremium ? false : true; 
-
-
-    console.log('--- Intentando crear producto ---');
-    console.log('req.body recibido:', req.body);
-    console.log('req.file (imagen) recibido:', req.file);
-    console.log('imageUrl:', imageUrl);
-    console.log('Usuario autenticado (req.user):', req.user);
-    console.log('¿Es usuario Premium?', user.isPremium);
-    console.log('isPublished por defecto al crear:', isPublishedDefault);
-    console.log('---------------------------------');
+    // NO NECESITAMOS BUSCAR EL USUARIO AQUÍ PARA LA LÓGICA DE isPublished
+    // La decisión de `isPublished` ahora viene del frontend para esta ruta.
+    // La lógica de `isPublishedDefault` que tenías antes se elimina para esta ruta.
+    // const user = await User.findById(req.user.id);
+    // if (!user) {
+    //     res.status(401);
+    //     throw new Error('Usuario no autorizado');
+    // }
+    // const isPublishedDefault = user.isPremium ? false : true; // ESTA LÍNEA SE ELIMINA/IGNORA PARA ESTA RUTA
 
     if (!name || !description || !price || !category || !quantity || !imageUrl) {
         res.status(400);
@@ -118,7 +116,7 @@ const createProduct = asyncHandler(async (req, res) => {
     }
     
     const product = await Product.create({
-        user: req.user.id,
+        user: req.user.id, // El ID del usuario viene del middleware 'protect'
         name,
         description,
         price,
@@ -126,7 +124,9 @@ const createProduct = asyncHandler(async (req, res) => {
         quantity,
         imageUrl,
         isTradable: isTradable === 'true',
-        isPublished: isPublishedDefault, // ✨ Usar el valor por defecto basado en si es premium ✨
+        // ⭐ CAMBIO CLAVE AQUÍ: Usar directamente el valor de isPublished del req.body ⭐
+        // Si el frontend envía `true`, será `true`. Si no lo envía, será `false` por defecto.
+        isPublished: Boolean(isPublished), 
     });
 
     res.status(201).json(product);
