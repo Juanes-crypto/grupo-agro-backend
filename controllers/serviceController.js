@@ -10,9 +10,8 @@ const cloudinary = require('../config/cloudinary'); // Para la subida de imágen
 // @access  Public
 const getServices = asyncHandler(async (req, res) => {
     let services;
-    // Si hay un usuario autenticado y es premium, o si es un admin, podría ver todos.
-    // Para simplificar ahora, solo mostramos los publicados a todos.
-    // Más adelante, podemos añadir lógica para que el dueño vea sus borradores.
+    // La lista pública solo muestra servicios que estén publicados.
+    // Esto asegura que los servicios recién creados (que ahora se publicarán automáticamente) sean visibles.
     services = await Service.find({ isPublished: true }).populate('user', 'name isPremium');
     res.status(200).json(services);
 });
@@ -28,6 +27,7 @@ const getMyServices = asyncHandler(async (req, res) => {
         throw new Error('Acceso denegado. Solo usuarios premium pueden ver sus servicios.');
     }
 
+    // Un usuario premium puede ver TODOS sus servicios, incluyendo los que no estén publicados (borradores).
     const services = await Service.find({ user: req.user.id }).populate('user', 'name isPremium');
     res.status(200).json(services);
 });
@@ -44,7 +44,8 @@ const getServiceById = asyncHandler(async (req, res) => {
         throw new Error('Servicio no encontrado');
     }
 
-    // Si el servicio no está publicado y el usuario no es el dueño, se deniega el acceso.
+    // Si el servicio no está publicado y el usuario NO es el dueño o no está autenticado, se deniega el acceso.
+    // Esto evita que cualquiera vea un servicio que no ha sido publicado.
     if (!service.isPublished && (!req.user || (service.user && service.user.id !== req.user.id))) {
         res.status(404);
         throw new Error('Servicio no encontrado o no disponible.');
@@ -59,7 +60,7 @@ const getServiceById = asyncHandler(async (req, res) => {
 const createService = asyncHandler(async (req, res) => {
     const { name, description, experience, price, isTradable } = req.body;
 
-    // Verificar que el usuario es premium
+    // Verificar que el usuario es premium (esta restricción la has mantenido)
     const user = await User.findById(req.user.id);
     if (!user || !user.isPremium) {
         res.status(403);
@@ -93,7 +94,8 @@ const createService = asyncHandler(async (req, res) => {
         price,
         isTradable: Boolean(isTradable), // Asegura que sea un booleano
         imageUrl,
-        isPublished: false, // Por defecto, se crea como borrador
+        // ⭐ CAMBIO CRÍTICO AQUÍ: Publicar automáticamente al crear ⭐
+        isPublished: true, // Ahora los servicios se crean como publicados por defecto
     });
 
     res.status(201).json(service);
@@ -142,14 +144,16 @@ const updateService = asyncHandler(async (req, res) => {
     service.price = price !== undefined ? price : service.price; // Permite price = 0
     service.isTradable = isTradable !== undefined ? Boolean(isTradable) : service.isTradable;
     service.imageUrl = imageUrl;
-    // Solo permitir cambiar isPublished si el usuario es premium
+    
+    // ⭐ Lógica para permitir a usuarios premium cambiar el estado de publicación ⭐
+    // Dado que ahora se publican automáticamente, esto permite a un premium "despublicar" si lo desea.
     const user = await User.findById(req.user.id);
     if (user && user.isPremium) {
         service.isPublished = isPublished !== undefined ? Boolean(isPublished) : service.isPublished;
     } else if (isPublished !== undefined && Boolean(isPublished) === true) {
-        // Si un no-premium intenta publicar, se deniega
+        // Si un no-premium intenta publicar, se deniega (aunque por tu lógica, solo premium crea servicios)
         res.status(403);
-        throw new Error('Solo usuarios premium pueden publicar servicios.');
+        throw new Error('Solo usuarios premium pueden cambiar el estado de publicación de servicios.');
     }
 
 
@@ -180,7 +184,7 @@ const deleteService = asyncHandler(async (req, res) => {
         await cloudinary.uploader.destroy(`agroapp-services/${publicId}`);
     }
 
-    await Service.deleteOne({ _id: service._id }); // O service.remove() si usas Mongoose < 6
+    await Service.deleteOne({ _id: service._id });
     res.status(200).json({ message: 'Servicio eliminado exitosamente' });
 });
 
