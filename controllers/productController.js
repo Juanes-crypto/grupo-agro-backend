@@ -9,7 +9,8 @@ const cloudinary = require('../config/cloudinary');
 // @route   GET /api/products
 // @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-    const { search, category, tradable } = req.query; // Extraer parámetros de consulta
+    // ⭐ CAMBIO AQUÍ: Cambiar 'tradable' por 'isTradable' para que coincida con el frontend ⭐
+    const { search, category, isTradable } = req.query; // Extraer parámetros de consulta
 
     let query = { isPublished: true }; // Solo mostrar productos publicados por defecto
 
@@ -23,8 +24,9 @@ const getProducts = asyncHandler(async (req, res) => {
         query.category = category;
     }
 
-    // Si 'tradable' es true, filtrar solo productos truequeables
-    if (tradable === 'true') {
+    // ⭐ CAMBIO AQUÍ: Usar 'isTradable' para el filtro ⭐
+    // Si 'isTradable' es 'true' (como string), filtrar solo productos truequeables
+    if (isTradable === 'true') {
         query.isTradable = true;
     }
 
