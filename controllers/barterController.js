@@ -2,13 +2,16 @@
 
 const asyncHandler = require('express-async-handler');
 const BarterProposal = require('../models/BarterProposal');
-const Product = require('../models/Product');
-const User = require('../models/User');
+const Product = require('../models/Product'); // Asume que este modelo tiene 'stock', 'isTradable', 'is_perishable', 'has_freshness_cert'
+const User = require('../models/User');     // Asume que este modelo tiene 'reputation'
 const { createNotification } = require('./notificationController'); // <-- ¡IMPORTA LA FUNCIÓN DE NOTIFICACIÓN!
 
 // Helper function to parse quantity strings like "5 kg" or "10 unidades"
 // This function extracts the numerical value and the unit from the string.
 function parseQuantityString(quantityString) {
+    if (!quantityString || typeof quantityString !== 'string') {
+        return { value: 0, unit: '' };
+    }
     const parts = quantityString.trim().split(' ');
     if (parts.length === 1) {
         // If only one part, try to parse as a number. If not a number, treat as 0 with the whole string as unit.
@@ -37,6 +40,24 @@ function formatQuantityString(value, unit) {
     return `${value}`; // If no unit, just return the number
 }
 
+// --- NUEVA FUNCIÓN: Simulación de API de Agronet para obtener valor de mercado ---
+// En una aplicación real, esto haría una llamada HTTP a la API de Agronet
+// para obtener el precio de mercado actual de un producto agrícola específico.
+// Por ahora, devolveremos un valor basado en el precio del producto.
+async function getMarketValueFromAgronet(productName, quantity) {
+    // Simulación: Podríamos tener una base de datos interna de precios de referencia
+    // o hacer una llamada real a una API externa como Agronet.
+    // Para esta demo, simplemente usaremos el precio del producto como su "valor de mercado".
+    // En un escenario real, la API de Agronet devolvería un precio por unidad (ej. por kg, por bulto).
+    // Aquí, asumimos que el 'price' del producto ya es su valor de mercado total.
+    console.log(`Simulando obtención de valor de mercado para: ${productName} (${quantity})`);
+    // Si tuvieras una API de Agronet que te diera el precio por unidad, lo usarías aquí:
+    // const agronomPricePerUnit = await fetch(`https://api.agronet.gov.co/prices?product=${productName}`).json();
+    // const { value: numQuantity, unit: qtyUnit } = parseQuantityString(quantity);
+    // return agronomPricePerUnit * numQuantity;
+    return null; // Retornamos null porque el precio ya está en el producto
+}
+
 
 // @desc    Create a new barter proposal
 // @route   POST /api/barter
@@ -62,8 +83,16 @@ const createBarterProposal = asyncHandler(async (req, res) => {
         throw new Error('Usuario recipiente no encontrado.');
     }
 
+    // --- REGLAS ANTIFRAUDE: Reputación del Recipiente (Vendedor) ---
+    // Asumiendo que el modelo User tiene un campo 'reputation'
+    if (recipient.reputation < 3) { // Valor por defecto 3, rango 1-5
+        res.status(400);
+        throw new Error(`El usuario ${recipient.name} tiene una reputación baja (${recipient.reputation} estrellas) y no puede participar en trueques.`);
+    }
+
     // 2. Obtener detalles de los productos ofrecidos y solicitados
     const offeredItems = [];
+    let totalOfferedValue = 0;
     for (const productId of offeredProductIds) {
         const product = await Product.findById(productId);
         if (!product) {
@@ -75,16 +104,25 @@ const createBarterProposal = asyncHandler(async (req, res) => {
             res.status(401);
             throw new Error(`No autorizado: No eres el dueño del producto ofrecido ${product.name}.`);
         }
+        // Asegurarse de que el producto ofrecido es truequeable y tiene inventario (stock)
+        if (!product.isTradable || product.stock <= 0) { // Usando 'isTradable' y 'stock'
+            res.status(400);
+            throw new Error(`El producto ofrecido '${product.name}' no está disponible para trueque o no tiene stock.`);
+        }
+
         offeredItems.push({
             product: product._id,
             name: product.name,
-            quantity: product.quantity,
+            quantity: formatQuantityString(product.stock, product.unit), // <-- CORREGIDO: Usar stock y unit
             image: product.imageUrl,
             description: product.description,
+            price: product.price // Incluir precio para cálculo de valor
         });
+        totalOfferedValue += product.price || 0;
     }
 
     const requestedItems = [];
+    let totalRequestedValue = 0;
     for (const productId of requestedProductIds) {
         const product = await Product.findById(productId);
         if (!product) {
@@ -96,14 +134,81 @@ const createBarterProposal = asyncHandler(async (req, res) => {
             res.status(400);
             throw new Error(`El producto solicitado ${product.name} no pertenece al usuario recipiente.`);
         }
+        // Asegurarse de que el producto solicitado es truequeable y tiene inventario (stock)
+        if (!product.isTradable || product.stock <= 0) { // Usando 'isTradable' y 'stock'
+            res.status(400);
+            throw new Error(`El producto solicitado '${product.name}' no está disponible para trueque o no tiene stock.`);
+        }
+
+        // --- REGLAS ANTIFRAUDE: Productos perecederos sin certificación de frescura ---
+        // Asumiendo que el modelo Product tiene 'is_perishable' y 'has_freshness_cert' como booleanos
+        if (product.is_perishable && !product.has_freshness_cert) {
+            res.status(400);
+            throw new Error(`El producto solicitado '${product.name}' es perecedero y requiere certificación de frescura para el trueque.`);
+        }
+
         requestedItems.push({
             product: product._id,
             name: product.name,
-            quantity: product.quantity,
+            quantity: formatQuantityString(product.stock, product.unit), // <-- CORREGIDO: Usar stock y unit
             image: product.imageUrl,
             description: product.description,
+            price: product.price // Incluir precio para cálculo de valor
         });
+        totalRequestedValue += product.price || 0;
     }
+
+    // --- REGLAS ANTIFRAUDE: Diferencia de valor supera el 40% ---
+    // Calculamos la diferencia porcentual para la validación
+    let isFair = true;
+    let differencePercentage = 0;
+    let messageEquity = "¡Trueque justo! 💚";
+    let suggestedDifference = null;
+
+    if (totalRequestedValue > 0 && totalOfferedValue > 0) {
+        const lowerValue = Math.min(totalOfferedValue, totalRequestedValue);
+        const higherValue = Math.max(totalOfferedValue, totalRequestedValue);
+        
+        // Evitar división por cero si lowerValue es 0
+        if (lowerValue === 0) {
+            differencePercentage = 100; // Si uno es 0 y el otro no, la diferencia es máxima
+        } else {
+            differencePercentage = ((higherValue - lowerValue) / lowerValue) * 100;
+        }
+
+        if (differencePercentage > 40) {
+            isFair = false;
+            messageEquity = "La diferencia de valor supera el 40%. Por favor, ajusta tu oferta.";
+            // Sugerir ajuste: si lo ofrecido es menor, necesita añadir más. Si lo solicitado es menor, el otro necesita añadir.
+            const neededAmount = Math.abs(totalRequestedValue - totalOfferedValue);
+            // Esto es una simplificación; en un caso real, necesitarías saber qué producto añadir.
+            // Por ahora, sugerimos una cantidad genérica o el valor monetario.
+            suggestedDifference = {
+                amount: neededAmount.toFixed(2), // Formatear a 2 decimales
+                unit: 'COP',
+                product: 'valor adicional'
+            };
+        } else if (differencePercentage > 20) { // Dentro del rango de 20-40, es "ajustable"
+            isFair = false; // No es "justo" perfecto, pero aceptable si el usuario lo desea
+            messageEquity = "Ajusta tu oferta para un trueque más equitativo. 💡";
+            const neededAmount = Math.abs(totalRequestedValue - totalOfferedValue);
+            suggestedDifference = {
+                amount: neededAmount.toFixed(2),
+                unit: 'COP',
+                product: 'valor adicional'
+            };
+        }
+    } else if (totalRequestedValue === 0 || totalOfferedValue === 0) {
+        // Si uno de los valores es 0 (ej. productos sin precio), no podemos calcular equidad.
+        isFair = false;
+        messageEquity = "No se puede calcular la equidad: uno o ambos productos no tienen precio definido.";
+    }
+
+    if (!isFair && differencePercentage > 40) {
+        res.status(400);
+        throw new Error(messageEquity); // Bloquear si la diferencia es > 40%
+    }
+    // Si la diferencia es entre 20-40%, se permite pero se advierte. No se bloquea en el backend aquí.
 
     // 3. Crear la propuesta
     const proposal = new BarterProposal({
@@ -113,6 +218,15 @@ const createBarterProposal = asyncHandler(async (req, res) => {
         requestedItems,
         message: message || '',
         status: 'pending',
+        // Guardar el feedback de equidad en la propuesta para referencia futura
+        equityFeedback: {
+            isFair: isFair,
+            message: messageEquity,
+            difference: suggestedDifference,
+            offeredValue: totalOfferedValue,
+            requestedValue: totalRequestedValue,
+            differencePercentage: differencePercentage
+        }
     });
 
     const createdProposal = await proposal.save();
@@ -122,7 +236,7 @@ const createBarterProposal = asyncHandler(async (req, res) => {
         user: recipientId, // Notificar al recipiente
         type: 'new_barter_proposal',
         title: '¡Nueva Propuesta de Trueque!',
-        message: `Has recibido una nueva propuesta de trueque de ${req.user.username}.`,
+        message: `Has recibido una nueva propuesta de trueque de ${req.user.username} por ${requestedItems[0].name}.`, // Mensaje más específico
         relatedEntityId: createdProposal._id,
         relatedEntityType: 'BarterProposal',
     });
@@ -140,10 +254,10 @@ const getMyBarterProposals = asyncHandler(async (req, res) => {
     const proposals = await BarterProposal.find({
         $or: [{ proposer: userId }, { recipient: userId }]
     })
-    .populate('proposer', 'username email')
-    .populate('recipient', 'username email')
-    .populate('offeredItems.product', 'name imageUrl')
-    .populate('requestedItems.product', 'name imageUrl')
+    .populate('proposer', 'username email reputation') // Incluir reputación del proponente
+    .populate('recipient', 'username email reputation') // Incluir reputación del recipiente
+    .populate('offeredItems.product', 'name imageUrl price stock unit isTradable is_perishable has_freshness_cert') // <-- ADDED 'unit'
+    .populate('requestedItems.product', 'name imageUrl price stock unit isTradable is_perishable has_freshness_cert') // <-- ADDED 'unit'
     .sort({ createdAt: -1 });
 
     res.status(200).json(proposals);
@@ -154,10 +268,10 @@ const getMyBarterProposals = asyncHandler(async (req, res) => {
 // @access  Private
 const getBarterProposalById = asyncHandler(async (req, res) => {
     const proposal = await BarterProposal.findById(req.params.id)
-        .populate('proposer', 'username email')
-        .populate('recipient', 'username email')
-        .populate('offeredItems.product', 'name imageUrl')
-        .populate('requestedItems.product', 'name imageUrl');
+        .populate('proposer', 'username email reputation')
+        .populate('recipient', 'username email reputation')
+        .populate('offeredItems.product', 'name imageUrl price stock unit isTradable is_perishable has_freshness_cert') // <-- ADDED 'unit'
+        .populate('requestedItems.product', 'name imageUrl price stock unit isTradable is_perishable has_freshness_cert'); // <-- ADDED 'unit'
 
     if (!proposal) {
         res.status(404);
@@ -227,28 +341,28 @@ const updateBarterProposalStatus = asyncHandler(async (req, res) => {
                 throw new Error(`Error en el intercambio: Producto ofrecido '${offeredItem.name}' no encontrado.`);
             }
 
-            const { value: productValue, unit: productUnit } = parseQuantityString(product.quantity);
+            // Parse the quantity string from the barter proposal item
             const { value: offeredValue, unit: offeredUnit } = parseQuantityString(offeredItem.quantity);
 
-            // Validar que las unidades coincidan
-            if (productUnit !== offeredUnit) {
+            // Validate that the units match the product's unit
+            if (product.unit !== offeredUnit) {
                 res.status(400);
-                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${productUnit}', Ofrecido: '${offeredUnit}'.`);
+                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Ofrecido: '${offeredUnit}'.`);
             }
 
-            const newQuantityValue = productValue - offeredValue;
+            const newStockValue = product.stock - offeredValue; // product.stock is a Number
 
-            if (newQuantityValue < 0) {
+            if (newStockValue < 0) {
                 res.status(400);
-                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.quantity}, Ofrecido: ${offeredItem.quantity}.`);
+                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Ofrecido: ${offeredItem.quantity}.`);
             }
 
-            product.quantity = formatQuantityString(newQuantityValue, productUnit);
+            product.stock = newStockValue; // Update the Number field
             await product.save();
-            console.log(`Producto ${product.name} (ofrecido por proponente) actualizado a ${product.quantity}`);
+            console.log(`Producto ${product.name} (ofrecido por proponente) actualizado a ${product.stock} ${product.unit}`);
 
             // Opcional: Si la cantidad llega a 0, puedes eliminar el producto o marcarlo como no disponible
-            // if (newQuantityValue === 0) {
+            // if (newStockValue === 0) {
             //     await product.deleteOne(); // Eliminar el producto si se agota
             //     console.log(`Producto ${product.name} agotado y eliminado después del trueque.`);
             // }
@@ -263,28 +377,28 @@ const updateBarterProposalStatus = asyncHandler(async (req, res) => {
                 throw new Error(`Error en el intercambio: Producto solicitado '${requestedItem.name}' no encontrado.`);
             }
 
-            const { value: productValue, unit: productUnit } = parseQuantityString(product.quantity);
+            // Parse the quantity string from the barter proposal item
             const { value: requestedValue, unit: requestedUnit } = parseQuantityString(requestedItem.quantity);
 
-            // Validar que las unidades coincidan
-            if (productUnit !== requestedUnit) {
+            // Validate that the units match the product's unit
+            if (product.unit !== requestedUnit) {
                 res.status(400);
-                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${productUnit}', Solicitado: '${requestedUnit}'.`);
+                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Solicitado: '${requestedUnit}'.`);
             }
 
-            const newQuantityValue = productValue - requestedValue;
+            const newStockValue = product.stock - requestedValue; // product.stock is a Number
 
-            if (newQuantityValue < 0) {
+            if (newStockValue < 0) {
                 res.status(400);
-                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.quantity}, Solicitado: ${requestedItem.quantity}.`);
+                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Solicitado: ${requestedItem.quantity}.`);
             }
 
-            product.quantity = formatQuantityString(newQuantityValue, productUnit);
+            product.stock = newStockValue; // Update the Number field
             await product.save();
-            console.log(`Producto ${product.name} (solicitado por proponente) actualizado a ${product.quantity}`);
+            console.log(`Producto ${product.name} (solicitado por proponente) actualizado a ${product.stock} ${product.unit}`);
 
             // Opcional: Si la cantidad llega a 0, puedes eliminar el producto o marcarlo como no disponible
-            // if (newQuantityValue === 0) {
+            // if (newStockValue === 0) {
             //     await product.deleteOne(); // Eliminar el producto si se agota
             //     console.log(`Producto ${product.name} agotado y eliminado después del trueque.`);
             // }
@@ -307,7 +421,7 @@ const updateBarterProposalStatus = asyncHandler(async (req, res) => {
             user: proposal.proposer,
             type: 'barter_accepted',
             title: '¡Propuesta de Trueque Aceptada!',
-            message: `Tu propuesta de trueque con ${proposal.recipient.username} ha sido aceptada.`,
+            message: `Tu propuesta de trueque con ${req.user.username} ha sido aceptada.`,
             relatedEntityId: updatedProposal._id,
             relatedEntityType: 'BarterProposal',
         });
@@ -405,9 +519,10 @@ const createCounterProposal = asyncHandler(async (req, res) => {
         offeredItems.push({
             product: product._id,
             name: product.name,
-            quantity: product.quantity,
+            quantity: formatQuantityString(product.stock, product.unit), // <-- CORREGIDO: Usar stock y unit
             image: product.imageUrl,
             description: product.description,
+            price: product.price // Incluir precio para cálculo de valor
         });
     }
 
@@ -426,9 +541,10 @@ const createCounterProposal = asyncHandler(async (req, res) => {
         requestedItems.push({
             product: product._id,
             name: product.name,
-            quantity: product.quantity,
+            quantity: formatQuantityString(product.stock, product.unit), // <-- CORREGIDO: Usar stock y unit
             image: product.imageUrl,
             description: product.description,
+            price: product.price // Incluir precio para cálculo de valor
         });
     }
 
@@ -461,10 +577,177 @@ const createCounterProposal = asyncHandler(async (req, res) => {
 });
 
 
+// --- NUEVA FUNCIÓN: Obtener Comparación de Valor de Trueque ---
+// @desc    Get value comparison for two products
+// @route   GET /api/barter/value-comparison?product1Id=<id>&product2Id=<id>
+// @access  Private
+const getBarterValueComparison = asyncHandler(async (req, res) => {
+    const { product1Id, product2Id } = req.query;
+
+    if (!product1Id || !product2Id) {
+        res.status(400);
+        throw new Error('Se requieren los IDs de ambos productos para la comparación.');
+    }
+
+    const product1 = await Product.findById(product1Id);
+    const product2 = await Product.findById(product2Id);
+
+    if (!product1 || !product2) {
+        res.status(404);
+        throw new Error('Uno o ambos productos no fueron encontrados.');
+    }
+
+    // Obtener valores de mercado (usando los precios de los productos como proxy)
+    // En un escenario real, aquí se integrarían llamadas a la API de Agronet
+    const value1 = product1.price || 0;
+    const value2 = product2.price || 0;
+
+    let isFair = true;
+    let message = "¡Trueque justo! 💚";
+    let difference = null;
+    let differencePercentage = 0;
+
+    if (value1 > 0 && value2 > 0) {
+        const lowerValue = Math.min(value1, value2);
+        const higherValue = Math.max(value1, value2);
+        
+        if (lowerValue === 0) { // Should not happen if value1 > 0 and value2 > 0, but for safety
+            differencePercentage = 100;
+        } else {
+            differencePercentage = ((higherValue - lowerValue) / lowerValue) * 100;
+        }
+
+        if (differencePercentage > 40) {
+            isFair = false;
+            message = "La diferencia de valor supera el 40%. No es un trueque equitativo.";
+            const neededAmount = Math.abs(value2 - value1);
+            difference = {
+                amount: neededAmount.toFixed(2),
+                unit: 'COP',
+                product: value1 < value2 ? product1.name : product2.name, // Sugerir el que tiene menor valor
+                percentage: differencePercentage
+            };
+        } else if (differencePercentage > 20) {
+            isFair = false; // No es "justo" perfecto, pero aceptable con advertencia
+            message = "Ajusta tu oferta para un trueque más equitativo. 💡";
+            const neededAmount = Math.abs(value2 - value1);
+            difference = {
+                amount: neededAmount.toFixed(2),
+                unit: 'COP',
+                product: value1 < value2 ? product1.name : product2.name,
+                percentage: differencePercentage
+            };
+        }
+        // Si differencePercentage <= 20, isFair permanece true y el mensaje es "¡Trueque justo! 💚"
+    } else {
+        isFair = false;
+        message = "No se puede calcular la equidad: uno o ambos productos no tienen precio definido.";
+    }
+
+    res.status(200).json({
+        isFair,
+        message,
+        difference,
+        offeredValue: value1, // En este endpoint, product1 es el "ofrecido" y product2 el "deseado"
+        requestedValue: value2,
+        differencePercentage
+    });
+});
+
+exports.compareProductValues = async (req, res) => {
+    try {
+        const { product1Id, product2Id } = req.query;
+
+        if (!product1Id || !product2Id) {
+            return res.status(400).json({ message: 'Se requieren product1Id y product2Id para la comparación.' });
+        }
+
+        const product1 = await Product.findById(product1Id);
+        const product2 = await Product.findById(product2Id);
+
+        if (!product1 || !product2) {
+            return res.status(404).json({ message: 'Uno o ambos productos no fueron encontrados.' });
+        }
+
+        // Calcula el valor total de cada producto
+        // Asumiendo que el "precio" es el valor monetario base para la comparación.
+        // Podrías ajustar esto para incluir factores como la cantidad, calidad, etc.
+        const value1 = product1.price * product1.stock; // O solo product1.price si comparas unidades individuales
+        const value2 = product2.price * product2.stock; // O solo product2.price
+
+        let isFair = false;
+        let message = '';
+        let difference = null; // Para sugerir qué añadir
+        let differencePercentage = 0;
+
+        const maxAcceptableDifferencePercentage = 40; // 40% de diferencia máxima aceptable
+
+        if (value1 === value2) {
+            isFair = true;
+            message = '¡Trueque Justo! Ambos productos tienen un valor equivalente. 💚';
+        } else {
+            const absDifference = Math.abs(value1 - value2);
+            const largerValue = Math.max(value1, value2);
+            differencePercentage = (absDifference / largerValue) * 100;
+
+            if (differencePercentage <= maxAcceptableDifferencePercentage) {
+                isFair = true;
+                message = '¡Casi perfecto! La oferta es aceptable con una pequeña diferencia. ⚖️';
+                if (value1 < value2) {
+                    difference = {
+                        amount: (value2 - value1).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
+                        unit: 'COP', // O la unidad de tu producto de mayor valor
+                        product: product1.name // Sugiere añadir más del producto 1 o algo más
+                    };
+                    message += ` Considera añadir un poco más o ajustar la cantidad de ${product1.name}.`;
+                } else {
+                     difference = {
+                        amount: (value1 - value2).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
+                        unit: 'COP',
+                        product: product2.name
+                    };
+                    message += ` Tu oferta es un poco mayor, ¡genial!`;
+                }
+            } else {
+                isFair = false;
+                message = 'Ajusta tu oferta. La diferencia de valor es significativa. 💡';
+                if (value1 < value2) {
+                    difference = {
+                        amount: (value2 - value1).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
+                        unit: 'COP',
+                        product: product1.name // Sugiere añadir más del producto 1
+                    };
+                } else {
+                    difference = {
+                        amount: (value1 - value2).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
+                        unit: 'COP',
+                        product: product2.name // O la diferencia en el otro producto
+                    };
+                }
+            }
+        }
+
+        res.json({
+            isFair,
+            message,
+            difference,
+            differencePercentage
+        });
+
+    } catch (error) {
+        console.error('Error al comparar valores de productos:', error);
+        res.status(500).json({ message: 'Error interno del servidor al comparar valores.', error: error.message });
+    }
+};
+
+
+
 module.exports = {
     createBarterProposal,
     getMyBarterProposals,
     getBarterProposalById,
     updateBarterProposalStatus,
     createCounterProposal,
+    getBarterValueComparison, // <-- ¡EXPORTA LA NUEVA FUNCIÓN!
+    compareProductValues,
 };

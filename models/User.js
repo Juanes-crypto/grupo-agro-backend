@@ -28,6 +28,12 @@ const userSchema = mongoose.Schema(
             enum: ['user', 'admin'],
             default: 'user',
         },
+        reputation: {
+            type: Number,
+            default: 3,
+            min: 1,
+            max: 5
+        },
     },
     {
         timestamps: true,

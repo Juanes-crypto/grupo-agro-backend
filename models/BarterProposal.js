@@ -27,6 +27,10 @@ const barterItemSchema = mongoose.Schema({
         type: String,
         required: true,
     },
+    price: { // Precio del producto en el momento de la propuesta (para cálculo de equidad)
+        type: Number,
+        required: false, // Puede que no todos los productos tengan precio
+    }
 }, {
     timestamps: false // No necesitamos timestamps para cada ítem individual del trueque
 });
@@ -83,6 +87,20 @@ const barterProposalSchema = mongoose.Schema({
         ref: 'BarterProposal',
         default: null,
     },
+    // --- NUEVO CAMPO: Feedback de Equidad ---
+    equityFeedback: {
+        isFair: { type: Boolean, default: false },
+        message: { type: String, default: '' },
+        difference: { // Sugerencia de ajuste
+            amount: { type: Number },
+            unit: { type: String },
+            product: { type: String },
+            percentage: { type: Number }
+        },
+        offeredValue: { type: Number, default: 0 },
+        requestedValue: { type: Number, default: 0 },
+        differencePercentage: { type: Number, default: 0 }
+    }
 }, {
     timestamps: true, // Para saber cuándo se creó o actualizó la propuesta
 });

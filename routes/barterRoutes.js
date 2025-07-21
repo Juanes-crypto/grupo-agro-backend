@@ -8,6 +8,7 @@ const {
     getBarterProposalById,
     updateBarterProposalStatus,
     createCounterProposal,
+    getBarterValueComparison, // <-- Importa la nueva función
 } = require('../controllers/barterController'); // Importa las funciones del controlador de trueques
 const { protect, authorize } = require('../middleware/authMiddleware'); // Importa los middlewares de autenticación y autorización
 
@@ -37,5 +38,12 @@ router.put('/:id/status', protect, updateBarterProposalStatus);
 // @desc    Crear una contrapropuesta para una propuesta existente
 // @access  Private
 router.post('/:id/counter', protect, createCounterProposal);
+
+// --- NUEVA RUTA: Comparación de Valor de Trueque ---
+// @route   GET /api/barter/value-comparison
+// @desc    Obtener comparación de valor entre dos productos para un trueque
+// @access  Private
+router.get('/value-comparison', protect, getBarterValueComparison); // <-- Nueva ruta
+router.get('/value-comparison', protect, barterController.compareProductValues);
 
 module.exports = router;
