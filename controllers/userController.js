@@ -39,7 +39,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
     if (!name || !email || !password) {
         res.status(400);
-        throw new new Error('Por favor, añade todos los campos');
+        throw new Error('Por favor, añade todos los campos');
     }
 
     // Check if user exists
@@ -59,6 +59,7 @@ const registerUser = asyncHandler(async (req, res) => {
         name,
         email,
         password: hashedPassword,
+        isPremium: false,
     });
 
     if (user) {

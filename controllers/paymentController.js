@@ -37,7 +37,7 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
 
         if (!order) {
             res.status(404);
-            throw new new Error('Orden no encontrada o no pertenece al usuario.'); // Texto original estaba bien
+            throw new Error('Orden no encontrada o no pertenece al usuario.'); // Texto original estaba bien
         }
         if (order.user.toString() !== req.user.id) { // Asegura que la orden pertenece al usuario autenticado
             res.status(401);

@@ -1,15 +1,17 @@
+// controllers/rentalController.js
 const asyncHandler = require('express-async-handler');
 const Rental = require('../models/Rental');
-const User = require('../models/User');
+const User = require('../models/User'); // Asegúrate de importar el modelo de Usuario si no lo estás haciendo ya
 const cloudinary = require('../config/cloudinary');
-
 const getRentals = asyncHandler(async (req, res) => {
-    const rentals = await Rental.find({});
+    // Añadimos .populate('owner') para traer la información completa del usuario propietario
+    const rentals = await Rental.find({}).populate('owner', 'name email isPremium'); // Trae name, email, isPremium del owner
     res.status(200).json(rentals);
 });
 
 const getRentalById = asyncHandler(async (req, res) => {
-    const rental = await Rental.findById(req.params.id);
+    // También populamos el owner para los detalles de una sola renta
+    const rental = await Rental.findById(req.params.id).populate('owner', 'name email isPremium');
 
     if (!rental) {
         res.status(404);
@@ -19,19 +21,13 @@ const getRentalById = asyncHandler(async (req, res) => {
 });
 
 const getMyRentals = asyncHandler(async (req, res) => {
-    const rentals = await Rental.find({ owner: req.user.id });
+    // Populamos el owner también para "Mis Rentas"
+    const rentals = await Rental.find({ owner: req.user.id }).populate('owner', 'name email isPremium');
     res.status(200).json(rentals);
 });
 
 const createRental = asyncHandler(async (req, res) => {
     const { name, description, pricePerDay, category } = req.body;
-
-    // ⭐ LÍNEAS ELIMINADAS: Ya no se verifica si el usuario es premium para crear rentas ⭐
-    // const user = await User.findById(req.user.id);
-    // if (!user || !user.isPremium) {
-    //     res.status(403); // Forbidden
-    //     throw new Error('Solo usuarios premium pueden ofrecer rentas.');
-    // }
 
     if (!name || !description || !pricePerDay || !category) {
         res.status(400);
@@ -57,18 +53,21 @@ const createRental = asyncHandler(async (req, res) => {
         owner: req.user.id,
     });
 
-    res.status(201).json(rental);
+    // Para la respuesta de creación, también populamos el owner para que el frontend reciba la info completa
+    const createdRental = await Rental.findById(rental._id).populate('owner', 'name email isPremium');
+
+    res.status(201).json(createdRental);
 });
 
 const updateRental = asyncHandler(async (req, res) => {
-    const rental = await Rental.findById(req.params.id);
+    const rental = await Rental.findById(req.params.id).populate('owner'); // Populamos para verificar el owner
 
     if (!rental) {
         res.status(404);
         throw new Error('Renta no encontrada');
     }
 
-    if (rental.owner.toString() !== req.user.id) {
+    if (rental.owner._id.toString() !== req.user.id) { // Usamos rental.owner._id ahora
         res.status(401);
         throw new Error('No autorizado para actualizar esta renta');
     }
@@ -85,20 +84,20 @@ const updateRental = asyncHandler(async (req, res) => {
         req.params.id,
         { ...req.body, imageUrl },
         { new: true }
-    );
+    ).populate('owner', 'name email isPremium'); // Populamos también la respuesta de actualización
 
     res.status(200).json(updatedRental);
 });
 
 const deleteRental = asyncHandler(async (req, res) => {
-    const rental = await Rental.findById(req.params.id);
+    const rental = await Rental.findById(req.params.id).populate('owner'); // Populamos para verificar el owner
 
     if (!rental) {
         res.status(404);
         throw new Error('Renta no encontrada');
     }
 
-    if (rental.owner.toString() !== req.user.id) {
+    if (rental.owner._id.toString() !== req.user.id) { // Usamos rental.owner._id ahora
         res.status(401);
         throw new Error('No autorizado para eliminar esta renta');
     }

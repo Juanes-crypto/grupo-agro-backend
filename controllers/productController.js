@@ -26,7 +26,7 @@ const getProducts = asyncHandler(async (req, res) => {
     }
 
     const products = await Product.find(query)
-                                  .populate('user', 'isPremium')
+                                  .populate('user', 'name reputation isPremium')
                                   .sort({ createdAt: -1 });
 
     res.status(200).json(products);
