@@ -7,26 +7,29 @@ const {
     getMe,
     updateUserProfile,
     updateUserPremiumStatus,
+    // ⭐ Importar los middlewares de validación ⭐
+    registerValidation,
+    loginValidation,
+    updateProfileValidation,
 } = require("../controllers/userController");
 
-// ⭐ Importar la nueva instancia de Multer para fotos de perfil ⭐
 const { uploadProfilePicture } = require('../config/multer'); 
 
 const { protect, authorize } = require("../middleware/authMiddleware");
 const User = require("../models/User");
 
 // 📌 Rutas públicas
-// ⭐ La ruta de registro ahora usa Multer para manejar una sola imagen llamada 'profilePicture' ⭐
-router.post("/register", uploadProfilePicture.single('profilePicture'), registerUser);
-router.post("/login", loginUser);
+// ⭐ Aplicar el middleware de validación a la ruta de registro ⭐
+router.post("/register", uploadProfilePicture.single('profilePicture'), registerValidation, registerUser);
+// ⭐ Aplicar el middleware de validación a la ruta de login ⭐
+router.post("/login", loginValidation, loginUser);
 
 // 🔒 Rutas protegidas
 router
     .route("/profile")
     .get(protect, getMe)
-    // ⭐ La ruta de actualización de perfil ahora usa Multer para una nueva foto ⭐
-    // El middleware 'protect' va antes de Multer si Multer necesita req.user para nombrar el archivo.
-    .put(protect, uploadProfilePicture.single('profilePicture'), updateUserProfile);
+    // ⭐ Aplicar el middleware de validación a la ruta de actualización de perfil ⭐
+    .put(protect, uploadProfilePicture.single('profilePicture'), updateProfileValidation, updateUserProfile);
 
 // 🛡️ Actualizar estado premium (usando roles, si aplica)
 router.put(
