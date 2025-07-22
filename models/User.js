@@ -1,4 +1,4 @@
-// agroapp-backend/models/User.js (Verificar)
+// agroapp-backend/models/User.js
 
 const mongoose = require('mongoose');
 
@@ -17,12 +17,15 @@ const userSchema = mongoose.Schema(
             type: String,
             required: [true, 'Por favor, añade una contraseña'],
         },
-        // ⭐ Asegúrate de que este campo exista ⭐
+        // ⭐ Nuevo campo para la imagen de perfil ⭐
+        profilePicture: {
+            type: String, // Guardaremos la URL de Cloudinary aquí
+            default: '', // Valor por defecto si no se sube ninguna imagen
+        },
         isPremium: {
             type: Boolean,
-            default: false, // Por defecto, los usuarios no son premium
+            default: false,
         },
-        // Puedes añadir otros roles si los necesitas
         role: {
             type: String,
             enum: ['user', 'admin'],

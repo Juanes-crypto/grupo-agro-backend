@@ -1,23 +1,28 @@
+// agroapp-backend/routes/rentalRoutes.js
+
 const express = require('express');
 const router = express.Router();
 const {
     getRentals,
     getRentalById,
-    getMyRentals,
     createRental,
     updateRental,
     deleteRental,
-} = require('../controllers/rentalController'); // Asegúrate de crear este controlador
-const { protect } = require('../middleware/authMiddleware'); // Middleware de autenticación
-const upload = require('../config/multer'); // Middleware para manejar subida de archivos (asumiendo que está en config/multer.js)
+    getMyRentals,
+} = require('../controllers/rentalController');
+const { protect } = require('../middleware/authMiddleware');
+// ⭐ Importa la instancia específica para productos/imágenes generales ⭐
+const { uploadProductImage } = require('../config/multer'); 
 
-// 🔐 Rutas privadas (¡PONLAS PRIMERO SI SON MÁS ESPECÍFICAS!)
+// Rutas protegidas
 router.get('/my-rentals', protect, getMyRentals);
-router.post('/', protect, upload.single('image'), createRental); // Protegida y con subida de imagen
-router.put('/:id', protect, upload.single('image'), updateRental);
+// ⭐ Usamos uploadProductImage para la subida de imagen de renta ⭐
+router.post('/', protect, uploadProductImage.single('image'), createRental); 
+// ⭐ Usamos uploadProductImage para la subida de imagen de renta ⭐
+router.put('/:id', protect, uploadProductImage.single('image'), updateRental);
 router.delete('/:id', protect, deleteRental);
 
-// 📦 Rutas públicas (Más generales, van después)
+// Rutas públicas
 router.get('/', getRentals);
 router.get('/:id', getRentalById);
 

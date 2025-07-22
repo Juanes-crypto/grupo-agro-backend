@@ -7,17 +7,19 @@ const {
     getProductById,
     getMyProducts,
     createProduct,
-    updateProduct, // ✨ Este ya lo estamos usando para publicar/despublicar
+    updateProduct,
     deleteProduct,
 } = require('../controllers/productController');
 const { protect } = require('../middleware/authMiddleware');
-const upload = require('../config/multer');
+// ⭐ Importa la instancia específica para productos ⭐
+const { uploadProductImage } = require('../config/multer'); 
 
 // 🔐 Rutas privadas (¡PONLAS PRIMERO SI SON MÁS ESPECÍFICAS!)
 router.get('/my-products', protect, getMyProducts);
-router.post('/', protect, upload.single('image'), createProduct);
-// La ruta PUT para actualizar un producto, incluyendo isPublished, ya existe
-router.put('/:id', protect, upload.single('image'), updateProduct);
+// ⭐ Usamos uploadProductImage para la subida de imágenes de productos ⭐
+router.post('/', protect, uploadProductImage.single('image'), createProduct);
+// ⭐ Usamos uploadProductImage para la subida de imágenes de productos ⭐
+router.put('/:id', protect, uploadProductImage.single('image'), updateProduct);
 router.delete('/:id', protect, deleteProduct);
 
 // 📦 Rutas públicas (Más generales, van después)
