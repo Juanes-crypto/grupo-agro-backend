@@ -5,13 +5,14 @@ const User = require('../models/User'); // Asegúrate de que User esté importad
 const asyncHandler = require('express-async-handler');
 const cloudinary = require('../config/cloudinary');
 
-// @desc    Obtener todos los productos (se mantiene para la vista pública)
-// @route   GET /api/products
-// @access  Public
+// @desc    Obtener todos los productos (se mantiene para la vista pública)
+// @route   GET /api/products
+// @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-    const { search, category, isTradable } = req.query;
+    // Se extraen los parámetros de consulta: search, category, isTradable, y AHORA 'user'
+    const { search, category, isTradable, user } = req.query;
 
-    let query = { isPublished: true };
+    let query = { isPublished: true }; // Por defecto, solo productos publicados
 
     if (search) {
         query.name = { $regex: search, $options: 'i' };
@@ -25,6 +26,11 @@ const getProducts = asyncHandler(async (req, res) => {
         query.isTradable = true;
     }
 
+    // ⭐ CORRECCIÓN CLAVE AQUÍ: Añadir el filtro por ID de usuario si está presente en la consulta ⭐
+    if (user) {
+        query.user = user;
+    }
+
     const products = await Product.find(query)
                                   .populate('user', 'name reputation isPremium')
                                   .sort({ createdAt: -1 });
@@ -32,9 +38,9 @@ const getProducts = asyncHandler(async (req, res) => {
     res.status(200).json(products);
 });
 
-// @desc    Obtener un solo producto por ID
-// @route   GET /api/products/:id
-// @access  Public
+// @desc    Obtener un solo producto por ID
+// @route   GET /api/products/:id
+// @access  Public
 const getProductById = asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id).populate('user', 'isPremium');
 
@@ -51,9 +57,9 @@ const getProductById = asyncHandler(async (req, res) => {
     res.status(200).json(product);
 });
 
-// @desc    Obtener los productos del usuario autenticado (NUEVA FUNCIÓN)
-// @route   GET /api/products/my-products
-// @access  Private
+// @desc    Obtener los productos del usuario autenticado (NUEVA FUNCIÓN)
+// @route   GET /api/products/my-products
+// @access  Private
 const getMyProducts = asyncHandler(async (req, res) => {
     console.log('--- Backend: getMyProducts (Iniciando búsqueda para usuario) ---');
     console.log('Usuario ID:', req.user.id);
@@ -63,16 +69,16 @@ const getMyProducts = asyncHandler(async (req, res) => {
     console.log('--- Backend: getMyProducts (Productos del usuario encontrados) ---');
     console.log('Total de productos encontrados para el usuario:', products.length);
     products.forEach((p, index) => {
-        console.log(`  Producto ${index + 1}: ID=${p._id}, Nombre=${p.name}, Publicado=${p.isPublished}, CreadoEn=${p.createdAt}`);
+        console.log(`   Producto ${index + 1}: ID=${p._id}, Nombre=${p.name}, Publicado=${p.isPublished}, CreadoEn=${p.createdAt}`);
     });
     console.log('----------------------------------------------------');
 
     res.status(200).json(products);
 });
 
-// @desc    Crear un nuevo producto
-// @route   POST /api/products
-// @access  Private (requiere token de autenticación)
+// @desc    Crear un nuevo producto
+// @route   POST /api/products
+// @access  Private (requiere token de autenticación)
 const createProduct = asyncHandler(async (req, res) => {
     console.log('ProductController - Iniciando createProduct...');
     if (req.user) {
@@ -100,7 +106,7 @@ const createProduct = asyncHandler(async (req, res) => {
         price,
         category,
         stock, // ⭐ Usar 'stock' ⭐
-        unit,  // ⭐ Usar 'unit' ⭐
+        unit,  // ⭐ Usar 'unit' ⭐
         imageUrl,
         isTradable: isTradable === 'true',
         isPublished: Boolean(isPublished), 
@@ -109,9 +115,9 @@ const createProduct = asyncHandler(async (req, res) => {
     res.status(201).json(product);
 });
 
-// @desc    Actualizar un producto
-// @route   PUT /api/products/:id
-// @access  Private
+// @desc    Actualizar un producto
+// @route   PUT /api/products/:id
+// @access  Private
 const updateProduct = asyncHandler(async (req, res) => {
     // ⭐ CAMBIO CLAVE AQUÍ: Desestructurar 'stock' y 'unit' en lugar de 'quantity' ⭐
     const { name, description, price, category, stock, unit, isTradable, isPublished } = req.body; 
@@ -152,7 +158,7 @@ const updateProduct = asyncHandler(async (req, res) => {
         price: price !== undefined ? price : product.price,
         category: category !== undefined ? category : product.category,
         stock: stock !== undefined ? stock : product.stock, // ⭐ Actualizar 'stock' ⭐
-        unit: unit !== undefined ? unit : product.unit,    // ⭐ Actualizar 'unit' ⭐
+        unit: unit !== undefined ? unit : product.unit,    // ⭐ Actualizar 'unit' ⭐
         isTradable: isTradable !== undefined ? (isTradable === 'true' || isTradable === true) : product.isTradable,
         imageUrl: newImageUrl,
         isPublished: isPublished !== undefined ? (isPublished === 'true' || isPublished === true) : product.isPublished,
@@ -167,9 +173,9 @@ const updateProduct = asyncHandler(async (req, res) => {
     res.status(200).json(updatedProduct);
 });
 
-// @desc    Eliminar un producto
-// @route   DELETE /api/products/:id
-// @access  Private
+// @desc    Eliminar un producto
+// @route   DELETE /api/products/:id
+// @access  Private
 const deleteProduct = asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id);
 
