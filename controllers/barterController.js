@@ -654,100 +654,12 @@ const getBarterValueComparison = asyncHandler(async (req, res) => {
     });
 });
 
-exports.compareProductValues = async (req, res) => {
-    try {
-        const { product1Id, product2Id } = req.query;
-
-        if (!product1Id || !product2Id) {
-            return res.status(400).json({ message: 'Se requieren product1Id y product2Id para la comparación.' });
-        }
-
-        const product1 = await Product.findById(product1Id);
-        const product2 = await Product.findById(product2Id);
-
-        if (!product1 || !product2) {
-            return res.status(404).json({ message: 'Uno o ambos productos no fueron encontrados.' });
-        }
-
-        // Calcula el valor total de cada producto
-        // Asumiendo que el "precio" es el valor monetario base para la comparación.
-        // Podrías ajustar esto para incluir factores como la cantidad, calidad, etc.
-        const value1 = product1.price * product1.stock; // O solo product1.price si comparas unidades individuales
-        const value2 = product2.price * product2.stock; // O solo product2.price
-
-        let isFair = false;
-        let message = '';
-        let difference = null; // Para sugerir qué añadir
-        let differencePercentage = 0;
-
-        const maxAcceptableDifferencePercentage = 40; // 40% de diferencia máxima aceptable
-
-        if (value1 === value2) {
-            isFair = true;
-            message = '¡Trueque Justo! Ambos productos tienen un valor equivalente. 💚';
-        } else {
-            const absDifference = Math.abs(value1 - value2);
-            const largerValue = Math.max(value1, value2);
-            differencePercentage = (absDifference / largerValue) * 100;
-
-            if (differencePercentage <= maxAcceptableDifferencePercentage) {
-                isFair = true;
-                message = '¡Casi perfecto! La oferta es aceptable con una pequeña diferencia. ⚖️';
-                if (value1 < value2) {
-                    difference = {
-                        amount: (value2 - value1).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
-                        unit: 'COP', // O la unidad de tu producto de mayor valor
-                        product: product1.name // Sugiere añadir más del producto 1 o algo más
-                    };
-                    message += ` Considera añadir un poco más o ajustar la cantidad de ${product1.name}.`;
-                } else {
-                     difference = {
-                        amount: (value1 - value2).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
-                        unit: 'COP',
-                        product: product2.name
-                    };
-                    message += ` Tu oferta es un poco mayor, ¡genial!`;
-                }
-            } else {
-                isFair = false;
-                message = 'Ajusta tu oferta. La diferencia de valor es significativa. 💡';
-                if (value1 < value2) {
-                    difference = {
-                        amount: (value2 - value1).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
-                        unit: 'COP',
-                        product: product1.name // Sugiere añadir más del producto 1
-                    };
-                } else {
-                    difference = {
-                        amount: (value1 - value2).toLocaleString('es-CO', { style: 'currency', currency: 'COP' }),
-                        unit: 'COP',
-                        product: product2.name // O la diferencia en el otro producto
-                    };
-                }
-            }
-        }
-
-        res.json({
-            isFair,
-            message,
-            difference,
-            differencePercentage
-        });
-
-    } catch (error) {
-        console.error('Error al comparar valores de productos:', error);
-        res.status(500).json({ message: 'Error interno del servidor al comparar valores.', error: error.message });
-    }
-};
-
-
-
+// ⭐ CORRECCIÓN CLAVE: Exportar todas las funciones que se usan en las rutas ⭐
 module.exports = {
     createBarterProposal,
     getMyBarterProposals,
     getBarterProposalById,
     updateBarterProposalStatus,
     createCounterProposal,
-    getBarterValueComparison, // <-- ¡EXPORTA LA NUEVA FUNCIÓN!
-    compareProductValues,
+    getBarterValueComparison, // <-- ¡AHORA ESTÁ CORRECTAMENTE EXPORTADA Y ES LA ÚNICA FUNCIÓN DE COMPARACIÓN!
 };

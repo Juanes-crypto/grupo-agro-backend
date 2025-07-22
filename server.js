@@ -27,6 +27,8 @@ app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/rentals', require('./routes/rentalRoutes'));
 // ⭐ AÑADE ESTA LÍNEA PARA LAS RUTAS DE PEDIDOS ⭐
 app.use('/api/orders', require('./routes/orderRoutes'));
+// ⭐ ¡AÑADE ESTA LÍNEA CLAVE PARA LAS RUTAS DE TRUEQUE! ⭐
+app.use('/api/barter', require('./routes/barterRoutes'));
 
 
 // Servir frontend
