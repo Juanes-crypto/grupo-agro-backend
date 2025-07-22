@@ -653,7 +653,265 @@ const getBarterValueComparison = asyncHandler(async (req, res) => {
         differencePercentage
     });
 });
+// agroapp-backend/controllers/barterController.js
 
+// ... (todas tus funciones anteriores como parseQuantityString, formatQuantityString, getMarketValueFromAgronet, createBarterProposal, getMyBarterProposals, getBarterProposalById, updateBarterProposalStatus, createCounterProposal, getBarterValueComparison)
+
+// --- NUEVA FUNCIÓN: Aceptar Contrapropuesta ---
+// @desc    Accept a counter-proposal
+// @route   PUT /api/barter/:id/counter/accept
+// @access  Private
+const acceptCounterProposal = asyncHandler(async (req, res) => {
+    const counterProposalId = req.params.id;
+    const userId = req.user._id;
+
+    const counterProposal = await BarterProposal.findById(counterProposalId);
+
+    if (!counterProposal) {
+        res.status(404);
+        throw new Error('Contrapropuesta no encontrada.');
+    }
+
+    // Solo el recipiente de la contrapropuesta puede aceptarla (que es el proponente original)
+    if (counterProposal.recipient.toString() !== userId.toString()) {
+        res.status(401);
+        throw new Error('No autorizado para aceptar esta contrapropuesta.');
+    }
+
+    // Solo se puede aceptar si el estado es 'pending'
+    if (counterProposal.status !== 'pending') {
+        res.status(400);
+        throw new Error(`La contrapropuesta ya está '${counterProposal.status}'.`);
+    }
+
+    // Marcar la contrapropuesta como aceptada
+    counterProposal.status = 'accepted';
+    const acceptedCounterProposal = await counterProposal.save();
+
+    // También necesitamos actualizar la propuesta original que fue 'countered'
+    if (counterProposal.counterProposalId) { // counterProposalId aquí apunta a la propuesta que esta contraoferta está respondiendo
+        const originalProposal = await BarterProposal.findById(counterProposal.counterProposalId);
+        if (originalProposal) {
+            originalProposal.status = 'completed'; // O un estado que indique que fue resuelta por una contraoferta
+            await originalProposal.save();
+            console.log(`Propuesta original ${originalProposal._id} marcada como 'completed' debido a contraoferta aceptada.`);
+        }
+    }
+
+
+    // --- LÓGICA DE INTERCAMBIO DE PRODUCTOS AL ACEPTAR LA CONTRAOFERTA ---
+    console.log(`Contrapropuesta aceptada para la propuesta ${counterProposal._id}. Iniciando intercambio de productos...`);
+
+    // 1. Reducir la cantidad de los productos ofrecidos por el PROponente de la contraoferta
+    // (que el RECIPIENTE de la contraoferta, o sea el proponente original, va a recibir)
+    for (const offeredItem of counterProposal.offeredItems) {
+        const product = await Product.findById(offeredItem.product);
+        if (!product) {
+            console.error(`Error de trueque: Producto ofrecido con ID ${offeredItem.product} no encontrado.`);
+            res.status(500);
+            throw new Error(`Error en el intercambio: Producto ofrecido '${offeredItem.name}' no encontrado.`);
+        }
+
+        const { value: offeredValue, unit: offeredUnit } = parseQuantityString(offeredItem.quantity);
+
+        if (product.unit !== offeredUnit) {
+            res.status(400);
+            throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Ofrecido: '${offeredUnit}'.`);
+        }
+
+        const newStockValue = product.stock - offeredValue;
+        if (newStockValue < 0) {
+            res.status(400);
+            throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Ofrecido: ${offeredItem.quantity}.`);
+        }
+        product.stock = newStockValue;
+        await product.save();
+        console.log(`Producto ${product.name} (ofrecido en contraoferta) actualizado a ${product.stock} ${product.unit}`);
+    }
+
+    // 2. Reducir la cantidad de los productos solicitados por el PROponente de la contraoferta
+    // (que el RECIPIENTE de la contraoferta estaba ofreciendo)
+    for (const requestedItem of counterProposal.requestedItems) {
+        const product = await Product.findById(requestedItem.product);
+        if (!product) {
+            console.error(`Error de trueque: Producto solicitado con ID ${requestedItem.product} no encontrado.`);
+            res.status(500);
+            throw new Error(`Error en el intercambio: Producto solicitado '${requestedItem.name}' no encontrado.`);
+        }
+
+        const { value: requestedValue, unit: requestedUnit } = parseQuantityString(requestedItem.quantity);
+
+        if (product.unit !== requestedUnit) {
+            res.status(400);
+            throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Solicitado: '${requestedUnit}'.`);
+        }
+
+        const newStockValue = product.stock - requestedValue;
+        if (newStockValue < 0) {
+            res.status(400);
+            throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Solicitado: ${requestedItem.quantity}.`);
+        }
+        product.stock = newStockValue;
+        await product.save();
+        console.log(`Producto ${product.name} (solicitado en contraoferta) actualizado a ${product.stock} ${product.unit}`);
+    }
+    console.log(`Intercambio de productos completado para la contrapropuesta ${counterProposal._id}.`);
+    // --- FIN LÓGICA DE INTERCAMBIO ---
+
+    // --- NOTIFICACIONES ---
+    await createNotification({
+        user: counterProposal.proposer, // Notificar al que hizo la contrapropuesta
+        type: 'counter_accepted',
+        title: '¡Contrapropuesta Aceptada!',
+        message: `Tu contrapropuesta ha sido aceptada por ${req.user.username}. ¡Trueque completado!`,
+        relatedEntityId: acceptedCounterProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
+    await createNotification({
+        user: counterProposal.recipient, // Notificar al que aceptó (confirmación)
+        type: 'counter_accepted',
+        title: '¡Trueque Completado!',
+        message: `Has aceptado la contrapropuesta de ${counterProposal.proposer.username}.`,
+        relatedEntityId: acceptedCounterProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
+    // --- FIN NOTIFICACIONES ---
+
+    res.status(200).json(acceptedCounterProposal);
+});
+
+// --- NUEVA FUNCIÓN: Rechazar Contrapropuesta ---
+// @desc    Reject a counter-proposal
+// @route   PUT /api/barter/:id/counter/reject
+// @access  Private
+const rejectCounterProposal = asyncHandler(async (req, res) => {
+    const counterProposalId = req.params.id;
+    const userId = req.user._id;
+
+    const counterProposal = await BarterProposal.findById(counterProposalId);
+
+    if (!counterProposal) {
+        res.status(404);
+        throw new Error('Contrapropuesta no encontrada.');
+    }
+
+    // Solo el recipiente de la contrapropuesta puede rechazarla
+    if (counterProposal.recipient.toString() !== userId.toString()) {
+        res.status(401);
+        throw new Error('No autorizado para rechazar esta contrapropuesta.');
+    }
+
+    // Solo se puede rechazar si el estado es 'pending'
+    if (counterProposal.status !== 'pending') {
+        res.status(400);
+        throw new Error(`La contrapropuesta ya está '${counterProposal.status}'.`);
+    }
+
+    // Marcar la contrapropuesta como rechazada
+    counterProposal.status = 'rejected';
+    const rejectedCounterProposal = await counterProposal.save();
+
+    // Opcional: Revertir la propuesta original a 'pending' si el flujo lo requiere
+    if (counterProposal.counterProposalId) {
+        const originalProposal = await BarterProposal.findById(counterProposal.counterProposalId);
+        if (originalProposal) {
+            originalProposal.status = 'pending'; // O 'rejected' si el rechazo de la contraoferta implica el rechazo de toda la cadena
+            await originalProposal.save();
+            console.log(`Propuesta original ${originalProposal._id} revertida a 'pending' tras rechazo de contraoferta.`);
+        }
+    }
+
+    // --- NOTIFICACIONES ---
+    await createNotification({
+        user: counterProposal.proposer, // Notificar al que hizo la contrapropuesta
+        type: 'counter_rejected',
+        title: 'Contrapropuesta Rechazada',
+        message: `Tu contrapropuesta ha sido rechazada por ${req.user.username}.`,
+        relatedEntityId: rejectedCounterProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
+    await createNotification({
+        user: counterProposal.recipient, // Notificar al que rechazó (confirmación)
+        type: 'counter_rejected',
+        title: 'Contrapropuesta Rechazada',
+        message: `Has rechazado la contrapropuesta de ${counterProposal.proposer.username}.`,
+        relatedEntityId: rejectedCounterProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
+    // --- FIN NOTIFICACIONES ---
+
+    res.status(200).json(rejectedCounterProposal);
+});
+
+// --- NUEVA FUNCIÓN: Cancelar cualquier Propuesta (Original o Contraoferta) ---
+// @desc    Cancel a barter proposal or a counter-proposal
+// @route   PUT /api/barter/:id/cancel
+// @access  Private
+const cancelBarterProposal = asyncHandler(async (req, res) => {
+    const proposalId = req.params.id;
+    const userId = req.user._id;
+
+    const proposal = await BarterProposal.findById(proposalId);
+
+    if (!proposal) {
+        res.status(404);
+        throw new Error('Propuesta de trueque o contrapropuesta no encontrada.');
+    }
+
+    // Solo el proponente o el recipiente pueden cancelar (o el admin)
+    if (
+        proposal.proposer.toString() !== userId.toString() &&
+        proposal.recipient.toString() !== userId.toString() &&
+        req.user.role !== 'administrador'
+    ) {
+        res.status(401);
+        throw new Error('No autorizado para cancelar esta propuesta.');
+    }
+
+    // Solo se puede cancelar si el estado es 'pending' o 'countered'
+    if (proposal.status !== 'pending' && proposal.status !== 'countered') {
+        res.status(400);
+        throw new Error(`No se puede cancelar una propuesta que ya está '${proposal.status}'.`);
+    }
+
+    // Marcar la propuesta como cancelada
+    proposal.status = 'cancelled';
+    const cancelledProposal = await proposal.save();
+
+    // Si es una contrapropuesta, la propuesta original podría necesitar ser marcada como 'rejected' o 'pending'
+    if (cancelledProposal.counterProposalId) { // Esto significa que la propuesta cancelada es una contraoferta
+        const originalProposal = await BarterProposal.findById(cancelledProposal.counterProposalId);
+        if (originalProposal) {
+            // Decidir si la propuesta original se marca como 'rejected' o vuelve a 'pending'
+            originalProposal.status = 'rejected'; // Ejemplo: La cancelación de la contraoferta implica rechazo de la original
+            await originalProposal.save();
+            console.log(`Propuesta original ${originalProposal._id} marcada como 'rejected' tras cancelación de contraoferta.`);
+        }
+    }
+
+
+    // --- NOTIFICACIONES ---
+    const otherUserId = proposal.proposer.toString() === userId.toString() ? proposal.recipient : proposal.proposer;
+    await createNotification({
+        user: otherUserId, // Notificar al otro usuario involucrado
+        type: 'barter_cancelled',
+        title: 'Propuesta de Trueque Cancelada',
+        message: `Una propuesta de trueque (o contrapropuesta) con ${req.user.username} ha sido cancelada.`,
+        relatedEntityId: cancelledProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
+    await createNotification({
+        user: userId, // Notificar al que canceló (confirmación)
+        type: 'barter_cancelled',
+        title: 'Propuesta de Trueque Cancelada',
+        message: `Has cancelado la propuesta de trueque.`,
+        relatedEntityId: cancelledProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
+    // --- FIN NOTIFICACIONES ---
+
+    res.status(200).json(cancelledProposal);
+});
 // ⭐ CORRECCIÓN CLAVE: Exportar todas las funciones que se usan en las rutas ⭐
 module.exports = {
     createBarterProposal,
@@ -661,5 +919,8 @@ module.exports = {
     getBarterProposalById,
     updateBarterProposalStatus,
     createCounterProposal,
-    getBarterValueComparison, // <-- ¡AHORA ESTÁ CORRECTAMENTE EXPORTADA Y ES LA ÚNICA FUNCIÓN DE COMPARACIÓN!
+    getBarterValueComparison,
+    acceptCounterProposal, // <-- ¡Función para aceptar contraofertas!
+    rejectCounterProposal, // <-- ¡Función para rechazar contraofertas!
+    cancelBarterProposal   // <-- ¡Función para cancelar cualquier tipo de trueque!
 };
