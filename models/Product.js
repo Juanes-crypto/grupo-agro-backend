@@ -3,7 +3,7 @@
 const mongoose = require('mongoose');
 
 const productSchema = mongoose.Schema({
-    user: { // El usuario que creó el producto (vendedor/campesino)
+    user: {
         type: mongoose.Schema.Types.ObjectId,
         required: true,
         ref: 'User',

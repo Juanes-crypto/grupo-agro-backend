@@ -5,6 +5,7 @@ const BarterProposal = require('../models/BarterProposal');
 const Product = require('../models/Product'); // Asume que este modelo tiene 'stock', 'isTradable', 'is_perishable', 'has_freshness_cert'
 const User = require('../models/User');     // Asume que este modelo tiene 'reputation'
 const { createNotification } = require('./notificationController'); // <-- ¡IMPORTA LA FUNCIÓN DE NOTIFICACIÓN!
+const mongoose = require('mongoose');
 
 // Helper function to parse quantity strings like "5 kg" or "10 unidades"
 // This function extracts the numerical value and the unit from the string.
@@ -251,14 +252,37 @@ const createBarterProposal = asyncHandler(async (req, res) => {
 const getMyBarterProposals = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
+    // Buscar propuestas donde el usuario es el proponente O el recipiente
     const proposals = await BarterProposal.find({
-        $or: [{ proposer: userId }, { recipient: userId }]
+        $or: [{ proposer: userId }, { recipient: userId }],
     })
-    .populate('proposer', 'username email reputation') // Incluir reputación del proponente
-    .populate('recipient', 'username email reputation') // Incluir reputación del recipiente
-    .populate('offeredItems.product', 'name imageUrl price stock unit isTradable is_perishable has_freshness_cert') // <-- ADDED 'unit'
-    .populate('requestedItems.product', 'name imageUrl price stock unit isTradable is_perishable has_freshness_cert') // <-- ADDED 'unit'
-    .sort({ createdAt: -1 });
+        // ⭐ POPULAR LOS CAMPOS DE REFERENCIA ⭐
+        .populate('proposer', 'username email') // Popula el usuario proponente (solo nombre de usuario y email)
+        .populate('recipient', 'username email') // Popula el usuario recipiente (solo nombre de usuario y email)
+        .populate('offeredItems.product') // ⭐ Popula los detalles completos del producto ofrecido ⭐
+        .populate('requestedItems.product') // ⭐ Popula los detalles completos del producto solicitado ⭐
+        .sort({ createdAt: -1 }); // Ordenar por las más recientes primero
+
+    if (!proposals) {
+        res.status(404);
+        throw new Error('No se encontraron propuestas de trueque para este usuario.');
+    }
+
+    // Opcional: Log para depuración, mostrando si los productos están populados
+    console.log(`--- Backend: getMyBarterProposals (Propuestas encontradas para usuario ${userId}) ---`);
+    proposals.forEach((proposal, index) => {
+        console.log(`  Propuesta ${index + 1}: ID=${proposal._id}, Estado=${proposal.status}`);
+        console.log('    Ofrecidos:', proposal.offeredItems.map(item => ({
+            name: item.name,
+            productPopulated: !!item.product && typeof item.product === 'object' && item.product._id // Verifica si el producto está populado
+        })));
+        console.log('    Solicitados:', proposal.requestedItems.map(item => ({
+            name: item.name,
+            productPopulated: !!item.product && typeof item.product === 'object' && item.product._id // Verifica si el producto está populado
+        })));
+    });
+    console.log('----------------------------------------------------');
+
 
     res.status(200).json(proposals);
 });
@@ -294,189 +318,229 @@ const getBarterProposalById = asyncHandler(async (req, res) => {
 // @desc    Update barter proposal status (accept, reject, cancel)
 // @route   PUT /api/barter/:id/status
 // @access  Private
+// agroapp-backend/controllers/barterController.js
+
+// --- Función updateBarterProposalStatus ---
 const updateBarterProposalStatus = asyncHandler(async (req, res) => {
     const { status } = req.body; // Expected status: 'accepted', 'rejected', 'cancelled'
     const proposalId = req.params.id;
     const userId = req.user._id;
 
-    const proposal = await BarterProposal.findById(proposalId);
+    // ⭐ Iniciar una sesión para la transacción ⭐
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (!proposal) {
-        res.status(404);
-        throw new Error('Propuesta de trueque no encontrada.');
-    }
+    try {
+        const proposal = await BarterProposal.findById(proposalId).session(session);
 
-    // Only recipient can accept/reject. Proposer can cancel.
-    if (status === 'accepted' || status === 'rejected') {
-        if (proposal.recipient.toString() !== userId.toString()) {
-            res.status(401);
-            throw new Error('No autorizado para cambiar el estado de esta propuesta.');
-        }
-    } else if (status === 'cancelled') {
-        if (proposal.proposer.toString() !== userId.toString() && proposal.recipient.toString() !== userId.toString()) {
-            res.status(401);
-            throw new Error('No autorizado para cancelar esta propuesta.');
-        }
-    } else {
-        res.status(400);
-        throw new Error('Estado de propuesta inválido.');
-    }
-
-    // Only update if current status is 'pending' or 'countered'
-    if (proposal.status !== 'pending' && proposal.status !== 'countered') {
-        res.status(400);
-        throw new Error(`No se puede cambiar el estado de una propuesta que ya está '${proposal.status}'.`);
-    }
-
-    // --- LÓGICA DE INTERCAMBIO DE PRODUCTOS AL ACEPTAR EL TRUEQUE ---
-    if (status === 'accepted') {
-        console.log(`Trueque aceptado para la propuesta ${proposal._id}. Iniciando intercambio de productos...`);
-
-        // 1. Reducir la cantidad de los productos ofrecidos por el PROponente (que el RECIPIENTE va a recibir)
-        for (const offeredItem of proposal.offeredItems) {
-            const product = await Product.findById(offeredItem.product);
-            if (!product) {
-                console.error(`Error de trueque: Producto ofrecido con ID ${offeredItem.product} no encontrado.`);
-                res.status(500);
-                throw new Error(`Error en el intercambio: Producto ofrecido '${offeredItem.name}' no encontrado.`);
-            }
-
-            // Parse the quantity string from the barter proposal item
-            const { value: offeredValue, unit: offeredUnit } = parseQuantityString(offeredItem.quantity);
-
-            // Validate that the units match the product's unit
-            if (product.unit !== offeredUnit) {
-                res.status(400);
-                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Ofrecido: '${offeredUnit}'.`);
-            }
-
-            const newStockValue = product.stock - offeredValue; // product.stock is a Number
-
-            if (newStockValue < 0) {
-                res.status(400);
-                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Ofrecido: ${offeredItem.quantity}.`);
-            }
-
-            product.stock = newStockValue; // Update the Number field
-            await product.save();
-            console.log(`Producto ${product.name} (ofrecido por proponente) actualizado a ${product.stock} ${product.unit}`);
-
-            // Opcional: Si la cantidad llega a 0, puedes eliminar el producto o marcarlo como no disponible
-            // if (newStockValue === 0) {
-            //     await product.deleteOne(); // Eliminar el producto si se agota
-            //     console.log(`Producto ${product.name} agotado y eliminado después del trueque.`);
-            // }
+        if (!proposal) {
+            res.status(404); // Establece el status antes de lanzar el error
+            throw new Error('Propuesta de trueque no encontrada.');
         }
 
-        // 2. Reducir la cantidad de los productos solicitados por el PROponente (que el RECIPIENTE estaba ofreciendo)
-        for (const requestedItem of proposal.requestedItems) {
-            const product = await Product.findById(requestedItem.product);
-            if (!product) {
-                console.error(`Error de trueque: Producto solicitado con ID ${requestedItem.product} no encontrado.`);
-                res.status(500);
-                throw new Error(`Error en el intercambio: Producto solicitado '${requestedItem.name}' no encontrado.`);
+        // Only recipient can accept/reject. Proposer can cancel.
+        if (status === 'accepted' || status === 'rejected') {
+            if (proposal.recipient.toString() !== userId.toString()) {
+                res.status(401);
+                throw new Error('No autorizado para cambiar el estado de esta propuesta.');
             }
-
-            // Parse the quantity string from the barter proposal item
-            const { value: requestedValue, unit: requestedUnit } = parseQuantityString(requestedItem.quantity);
-
-            // Validate that the units match the product's unit
-            if (product.unit !== requestedUnit) {
-                res.status(400);
-                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Solicitado: '${requestedUnit}'.`);
+        } else if (status === 'cancelled') {
+            if (proposal.proposer.toString() !== userId.toString() && proposal.recipient.toString() !== userId.toString()) {
+                res.status(401);
+                throw new Error('No autorizado para cancelar esta propuesta.');
             }
-
-            const newStockValue = product.stock - requestedValue; // product.stock is a Number
-
-            if (newStockValue < 0) {
-                res.status(400);
-                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Solicitado: ${requestedItem.quantity}.`);
-            }
-
-            product.stock = newStockValue; // Update the Number field
-            await product.save();
-            console.log(`Producto ${product.name} (solicitado por proponente) actualizado a ${product.stock} ${product.unit}`);
-
-            // Opcional: Si la cantidad llega a 0, puedes eliminar el producto o marcarlo como no disponible
-            // if (newStockValue === 0) {
-            //     await product.deleteOne(); // Eliminar el producto si se agota
-            //     console.log(`Producto ${product.name} agotado y eliminado después del trueque.`);
-            // }
+        } else {
+            res.status(400);
+            throw new Error('Estado de propuesta inválido.');
         }
 
-        // TODO: En un sistema más avanzado, aquí también se podría:
-        // - Crear un registro de "Transacción de Trueque" para el historial.
-        // - Notificar a ambos usuarios sobre el trueque completado.
-        console.log(`Intercambio de productos completado para la propuesta ${proposal._id}.`);
+        // Only update if current status is 'pending' or 'countered'
+        if (proposal.status !== 'pending' && proposal.status !== 'countered') {
+            res.status(400);
+            throw new Error(`No se puede cambiar el estado de una propuesta que ya está '${proposal.status}'.`);
+        }
+
+        // --- LÓGICA DE INTERCAMBIO DE PRODUCTOS AL ACEPTAR EL TRUEQUE ---
+        if (status === 'accepted') {
+            console.log(`Trueque aceptado para la propuesta ${proposal._id}. Iniciando intercambio de productos...`);
+
+            const productsToPersist = [];
+
+            // 1. Productos ofrecidos por el PROponente (pasan al RECIPIENTE)
+            for (const offeredItem of proposal.offeredItems) {
+                const product = await Product.findById(offeredItem.product).session(session);
+                if (!product) {
+                    console.error(`Error de trueque: Producto ofrecido con ID ${offeredItem.product} no encontrado.`);
+                    // No establecemos res.status aquí, el catch general lo hará
+                    throw new Error(`Error en el intercambio: Producto ofrecido '${offeredItem.name}' no encontrado.`);
+                }
+
+                const { value: offeredValue, unit: offeredUnit } = parseQuantityString(offeredItem.quantity); // Corregido: offeredItem.quantity
+
+                if (product.unit !== offeredUnit) {
+                    throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Ofrecido: '${offeredUnit}'.`);
+                }
+
+                if (product.stock < offeredValue) {
+                    throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Ofrecido: ${offeredItem.quantity}.`);
+                }
+
+                if (product.stock === offeredValue) {
+                    product.user = proposal.recipient; // ⭐ CAMBIAR PROPIETARIO al RECIPIENTE de la propuesta original ⭐
+                    productsToPersist.push(product);
+                    console.log(`Producto ${product.name} (${product._id}) transferido de ${proposal.proposer} a ${proposal.recipient}. Stock: ${product.stock} ${product.unit}.`);
+                } else {
+                    product.stock -= offeredValue;
+                    productsToPersist.push(product);
+
+                    const newProductForRecipient = new Product({
+                        user: proposal.recipient, // El nuevo propietario
+                        name: product.name,
+                        description: product.description,
+                        image: product.imageUrl,
+                        price: product.price,
+                        stock: offeredValue,
+                        unit: product.unit,
+                        category: product.category,
+                        isPublished: product.isPublished,
+                        isTradable: product.isTradable,
+                        is_perishable: product.is_perishable,
+                        has_freshness_cert: product.has_freshness_cert,
+                    });
+                    productsToPersist.push(newProductForRecipient);
+                    console.log(`Producto ${product.name} (${product._id}) stock reducido a ${product.stock} ${product.unit}.`);
+                    console.log(`Nuevo producto ${newProductForRecipient.name} creado para ${proposal.recipient} con ${newProductForRecipient.stock} ${newProductForRecipient.unit}.`);
+                }
+            }
+
+            // 2. Productos solicitados por el PROponente (eran del RECIPIENTE, y ahora pasan al PROponente)
+            for (const requestedItem of proposal.requestedItems) {
+                const product = await Product.findById(requestedItem.product).session(session);
+                if (!product) {
+                    console.error(`Error de trueque: Producto solicitado con ID ${requestedItem.product} no encontrado.`);
+                    throw new Error(`Error en el intercambio: Producto solicitado '${requestedItem.name}' no encontrado.`);
+                }
+
+                const { value: requestedValue, unit: requestedUnit } = parseQuantityString(requestedItem.quantity);
+
+                if (product.unit !== requestedUnit) {
+                    throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Solicitado: '${requestedUnit}'.`);
+                }
+
+                if (product.stock < requestedValue) {
+                    throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Solicitado: ${requestedItem.quantity}.`);
+                }
+
+                if (product.stock === requestedValue) {
+                    product.user = proposal.proposer; // ⭐ CAMBIAR PROPIETARIO al PROPONENTE de la propuesta original ⭐
+                    productsToPersist.push(product);
+                    console.log(`Producto ${product.name} (${product._id}) transferido de ${proposal.recipient} a ${proposal.proposer}. Stock: ${product.stock} ${product.unit}.`);
+                } else {
+                    product.stock -= requestedValue;
+                    productsToPersist.push(product);
+
+                    const newProductForProposer = new Product({
+                        user: proposal.proposer, // El nuevo propietario
+                        name: product.name,
+                        description: product.description,
+                        image: product.imageUrl,
+                        price: product.price,
+                        stock: requestedValue,
+                        unit: product.unit,
+                        category: product.category,
+                        isPublished: product.isPublished,
+                        isTradable: product.isTradable,
+                        is_perishable: product.is_perishable,
+                        has_freshness_cert: product.has_freshness_cert,
+                    });
+                    productsToPersist.push(newProductForProposer);
+                    console.log(`Producto ${product.name} (${product._id}) stock reducido a ${product.stock} ${product.unit}.`);
+                    console.log(`Nuevo producto ${newProductForProposer.name} creado para ${proposal.proposer} con ${newProductForProposer.stock} ${newProductForProposer.unit}.`);
+                }
+            }
+
+            // Guarda todos los documentos dentro de la transacción
+            await Promise.all(productsToPersist.map(p => p.save({ session })));
+            console.log(`Intercambio de productos completado para la propuesta ${proposal._id}.`);
+        }
+        // --- FIN LÓGICA DE INTERCAMBIO ---
+
+        proposal.status = status;
+        await proposal.save({ session }); // Guarda el estado actualizado de la propuesta
+
+        // ⭐ Confirmar la transacción ⭐
+        await session.commitTransaction();
+        session.endSession();
+
+        // --- NOTIFICACIONES ---
+        if (status === 'accepted') {
+            await createNotification({
+                user: proposal.proposer,
+                type: 'barter_accepted',
+                title: '¡Propuesta de Trueque Aceptada! 🎉',
+                message: `Tu propuesta de trueque con ${req.user.username} ha sido aceptada.`,
+                relatedEntityId: proposal._id,
+                relatedEntityType: 'BarterProposal',
+            });
+            await createNotification({
+                user: proposal.recipient,
+                type: 'barter_accepted',
+                title: '¡Trueque Completado! 🤝',
+                message: `Has aceptado la propuesta de trueque de ${proposal.proposer.username}.`,
+                relatedEntityId: proposal._id,
+                relatedEntityType: 'BarterProposal',
+            });
+        } else if (status === 'rejected') {
+            await createNotification({
+                user: proposal.proposer,
+                type: 'barter_rejected',
+                title: 'Propuesta de Trueque Rechazada',
+                message: `Tu propuesta de trueque con ${proposal.recipient.username} ha sido rechazada.`,
+                relatedEntityId: proposal._id,
+                relatedEntityType: 'BarterProposal',
+            });
+            await createNotification({
+                user: proposal.recipient,
+                type: 'barter_rejected',
+                title: 'Propuesta de Trueque Rechazada',
+                message: `Has rechazado la propuesta de trueque de ${proposal.proposer.username}.`,
+                relatedEntityId: proposal._id,
+                relatedEntityType: 'BarterProposal',
+            });
+        } else if (status === 'cancelled') {
+            const otherUserId = proposal.proposer.toString() === userId.toString() ? proposal.recipient : proposal.proposer;
+            await createNotification({
+                user: otherUserId,
+                type: 'barter_cancelled',
+                title: 'Propuesta de Trueque Cancelada',
+                message: `La propuesta de trueque con ${req.user.username} ha sido cancelada.`,
+                relatedEntityId: proposal._id,
+                relatedEntityType: 'BarterProposal',
+            });
+            await createNotification({
+                user: userId,
+                type: 'barter_cancelled',
+                title: 'Propuesta de Trueque Cancelada',
+                message: `Has cancelado la propuesta de trueque.`,
+                relatedEntityId: proposal._id,
+                relatedEntityType: 'BarterProposal',
+            });
+        }
+        // --- FIN NOTIFICACIONES ---
+
+        res.status(200).json(proposal); // Envía la propuesta actualizada
+
+    } catch (error) {
+        // ⭐ Si algo falla, abortar la transacción para revertir todos los cambios ⭐
+        await session.abortTransaction();
+        session.endSession();
+        console.error('Error durante el trueque:', error.message);
+        // Asegúrate de que el status se establezca correctamente antes de enviar la respuesta
+        res.status(res.statusCode === 200 ? 500 : res.statusCode).json({
+            message: error.message || 'Error interno del servidor durante el trueque.',
+            stack: process.env.NODE_ENV === 'production' ? null : error.stack,
+        });
     }
-    // --- FIN LÓGICA DE INTERCAMBIO ---
-
-    proposal.status = status;
-    const updatedProposal = await proposal.save();
-
-    // --- NOTIFICACIONES PARA EL PROponente y RECIPIENTE (si aplica) ---
-    if (status === 'accepted') {
-        // Notificar al proponente que su propuesta fue aceptada
-        await createNotification({
-            user: proposal.proposer,
-            type: 'barter_accepted',
-            title: '¡Propuesta de Trueque Aceptada!',
-            message: `Tu propuesta de trueque con ${req.user.username} ha sido aceptada.`,
-            relatedEntityId: updatedProposal._id,
-            relatedEntityType: 'BarterProposal',
-        });
-        // Notificar al recipiente que aceptó la propuesta (confirmación)
-        await createNotification({
-            user: proposal.recipient,
-            type: 'barter_accepted',
-            title: '¡Trueque Completado!',
-            message: `Has aceptado la propuesta de trueque de ${proposal.proposer.username}.`,
-            relatedEntityId: updatedProposal._id,
-            relatedEntityType: 'BarterProposal',
-        });
-    } else if (status === 'rejected') {
-        // Notificar al proponente que su propuesta fue rechazada
-        await createNotification({
-            user: proposal.proposer,
-            type: 'barter_rejected',
-            title: 'Propuesta de Trueque Rechazada',
-            message: `Tu propuesta de trueque con ${proposal.recipient.username} ha sido rechazada.`,
-            relatedEntityId: updatedProposal._id,
-            relatedEntityType: 'BarterProposal',
-        });
-        // Notificar al recipiente que rechazó la propuesta (confirmación)
-        await createNotification({
-            user: proposal.recipient,
-            type: 'barter_rejected',
-            title: 'Propuesta de Trueque Rechazada',
-            message: `Has rechazado la propuesta de trueque de ${proposal.proposer.username}.`,
-            relatedEntityId: updatedProposal._id,
-            relatedEntityType: 'BarterProposal',
-        });
-    } else if (status === 'cancelled') {
-        // Notificar al otro usuario que la propuesta fue cancelada
-        const otherUserId = proposal.proposer.toString() === userId.toString() ? proposal.recipient : proposal.proposer;
-        await createNotification({
-            user: otherUserId,
-            type: 'barter_cancelled', // Puedes añadir este tipo al enum si quieres
-            title: 'Propuesta de Trueque Cancelada',
-            message: `La propuesta de trueque con ${req.user.username} ha sido cancelada.`,
-            relatedEntityId: updatedProposal._id,
-            relatedEntityType: 'BarterProposal',
-        });
-        // Notificar al usuario que la canceló (confirmación)
-        await createNotification({
-            user: userId,
-            type: 'barter_cancelled',
-            title: 'Propuesta de Trueque Cancelada',
-            message: `Has cancelado la propuesta de trueque.`,
-            relatedEntityId: updatedProposal._id,
-            relatedEntityType: 'BarterProposal',
-        });
-    }
-    // --- FIN NOTIFICACIONES ---
-
-    res.status(200).json(updatedProposal);
 });
 
 // @desc    Create a counter proposal for an existing proposal
@@ -665,119 +729,190 @@ const acceptCounterProposal = asyncHandler(async (req, res) => {
     const counterProposalId = req.params.id;
     const userId = req.user._id;
 
-    const counterProposal = await BarterProposal.findById(counterProposalId);
+    // ⭐ Iniciar una sesión para la transacción ⭐
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (!counterProposal) {
-        res.status(404);
-        throw new Error('Contrapropuesta no encontrada.');
-    }
+    try {
+        const counterProposal = await BarterProposal.findById(counterProposalId).session(session);
 
-    // Solo el recipiente de la contrapropuesta puede aceptarla (que es el proponente original)
-    if (counterProposal.recipient.toString() !== userId.toString()) {
-        res.status(401);
-        throw new Error('No autorizado para aceptar esta contrapropuesta.');
-    }
-
-    // Solo se puede aceptar si el estado es 'pending'
-    if (counterProposal.status !== 'pending') {
-        res.status(400);
-        throw new Error(`La contrapropuesta ya está '${counterProposal.status}'.`);
-    }
-
-    // Marcar la contrapropuesta como aceptada
-    counterProposal.status = 'accepted';
-    const acceptedCounterProposal = await counterProposal.save();
-
-    // También necesitamos actualizar la propuesta original que fue 'countered'
-    if (counterProposal.counterProposalId) { // counterProposalId aquí apunta a la propuesta que esta contraoferta está respondiendo
-        const originalProposal = await BarterProposal.findById(counterProposal.counterProposalId);
-        if (originalProposal) {
-            originalProposal.status = 'completed'; // O un estado que indique que fue resuelta por una contraoferta
-            await originalProposal.save();
-            console.log(`Propuesta original ${originalProposal._id} marcada como 'completed' debido a contraoferta aceptada.`);
-        }
-    }
-
-
-    // --- LÓGICA DE INTERCAMBIO DE PRODUCTOS AL ACEPTAR LA CONTRAOFERTA ---
-    console.log(`Contrapropuesta aceptada para la propuesta ${counterProposal._id}. Iniciando intercambio de productos...`);
-
-    // 1. Reducir la cantidad de los productos ofrecidos por el PROponente de la contraoferta
-    // (que el RECIPIENTE de la contraoferta, o sea el proponente original, va a recibir)
-    for (const offeredItem of counterProposal.offeredItems) {
-        const product = await Product.findById(offeredItem.product);
-        if (!product) {
-            console.error(`Error de trueque: Producto ofrecido con ID ${offeredItem.product} no encontrado.`);
-            res.status(500);
-            throw new Error(`Error en el intercambio: Producto ofrecido '${offeredItem.name}' no encontrado.`);
+        if (!counterProposal) {
+            res.status(404);
+            throw new Error('Contrapropuesta no encontrada.');
         }
 
-        const { value: offeredValue, unit: offeredUnit } = parseQuantityString(offeredItem.quantity);
+        // Solo el recipiente de la contrapropuesta puede aceptarla (que es el proponente original)
+        if (counterProposal.recipient.toString() !== userId.toString()) {
+            res.status(401);
+            throw new Error('No autorizado para aceptar esta contrapropuesta.');
+        }
 
-        if (product.unit !== offeredUnit) {
+        // Solo se puede aceptar si el estado es 'pending'
+        if (counterProposal.status !== 'pending') {
             res.status(400);
-            throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Ofrecido: '${offeredUnit}'.`);
+            throw new Error(`La contrapropuesta ya está '${counterProposal.status}'.`);
         }
 
-        const newStockValue = product.stock - offeredValue;
-        if (newStockValue < 0) {
-            res.status(400);
-            throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Ofrecido: ${offeredItem.quantity}.`);
+        // Marcar la contrapropuesta como aceptada
+        counterProposal.status = 'accepted';
+        // await counterProposal.save({ session }); // Guarda dentro de la transacción
+        // No guardar aquí directamente, se hará al final con todos los productos
+
+        // También necesitamos actualizar la propuesta original que fue 'countered'
+        if (counterProposal.counterProposalId) {
+            const originalProposal = await BarterProposal.findById(counterProposal.counterProposalId).session(session);
+            if (originalProposal) {
+                originalProposal.status = 'completed';
+                // await originalProposal.save({ session }); // Guarda dentro de la transacción
+                // No guardar aquí directamente, se hará al final con todos los productos
+                console.log(`Propuesta original ${originalProposal._id} marcada como 'completed' debido a contraoferta aceptada.`);
+            }
         }
-        product.stock = newStockValue;
-        await product.save();
-        console.log(`Producto ${product.name} (ofrecido en contraoferta) actualizado a ${product.stock} ${product.unit}`);
+
+        // --- LÓGICA DE INTERCAMBIO DE PRODUCTOS AL ACEPTAR LA CONTRAOFERTA ---
+        console.log(`Contrapropuesta aceptada para la propuesta ${counterProposal._id}. Iniciando intercambio de productos...`);
+
+        const productsToPersist = [];
+
+        // 1. Productos ofrecidos por el PROponente de la contraoferta (pasan al RECIPIENTE de la contraoferta)
+        for (const offeredItem of counterProposal.offeredItems) {
+            const product = await Product.findById(offeredItem.product).session(session);
+            if (!product) {
+                console.error(`Error de trueque: Producto ofrecido con ID ${offeredItem.product} no encontrado.`);
+                throw new Error(`Error en el intercambio: Producto ofrecido '${offeredItem.name}' no encontrado.`); // Lanzar error para abortar transacción
+            }
+
+            const { value: offeredValue, unit: offeredUnit } = parseQuantityString(offeredItem.quantity);
+
+            if (product.unit !== offeredUnit) {
+                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Ofrecido: '${offeredUnit}'.`);
+            }
+
+            if (product.stock < offeredValue) {
+                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Ofrecido: ${offeredItem.quantity}.`);
+            }
+
+            if (product.stock === offeredValue) {
+                product.user = counterProposal.recipient;
+                productsToPersist.push(product);
+                console.log(`Producto ${product.name} (${product._id}) transferido de ${counterProposal.proposer} a ${counterProposal.recipient}. Stock: ${product.stock} ${product.unit}.`);
+            } else {
+                product.stock -= offeredValue;
+                productsToPersist.push(product);
+
+                const newProductForRecipient = new Product({
+                    name: product.name,
+                    description: product.description,
+                    image: product.imageUrl,
+                    price: product.price,
+                    stock: offeredValue,
+                    unit: product.unit,
+                    category: product.category,
+                    user: counterProposal.recipient,
+                    isPublished: product.isPublished,
+                    isTradable: product.isTradable,
+                    is_perishable: product.is_perishable,
+                    has_freshness_cert: product.has_freshness_cert,
+                });
+                productsToPersist.push(newProductForRecipient);
+                console.log(`Producto ${product.name} (${product._id}) stock reducido a ${product.stock} ${product.unit}.`);
+                console.log(`Nuevo producto ${newProductForRecipient.name} creado para ${counterProposal.recipient} con ${newProductForRecipient.stock} ${newProductForRecipient.unit}.`);
+            }
+        }
+
+        // 2. Productos solicitados por el PROponente de la contraoferta (originalmente del RECIPIENTE, ahora pasan al PROponente)
+        for (const requestedItem of counterProposal.requestedItems) {
+            const product = await Product.findById(requestedItem.product).session(session);
+            if (!product) {
+                console.error(`Error de trueque: Producto solicitado con ID ${requestedItem.product} no encontrado.`);
+                throw new Error(`Error en el intercambio: Producto solicitado '${requestedItem.name}' no encontrado.`);
+            }
+
+            const { value: requestedValue, unit: requestedUnit } = parseQuantityString(requestedItem.quantity);
+
+            if (product.unit !== requestedUnit) {
+                throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Solicitado: '${requestedUnit}'.`);
+            }
+
+            if (product.stock < requestedValue) {
+                throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Solicitado: ${requestedItem.quantity}.`);
+            }
+
+            if (product.stock === requestedValue) {
+                product.user = counterProposal.proposer;
+                productsToPersist.push(product);
+                console.log(`Producto ${product.name} (${product._id}) transferido de ${counterProposal.recipient} a ${counterProposal.proposer}. Stock: ${product.stock} ${product.unit}.`);
+            } else {
+                product.stock -= requestedValue;
+                productsToPersist.push(product);
+
+                const newProductForProposer = new Product({
+                    name: product.name,
+                    description: product.description,
+                    image: product.imageUrl,
+                    price: product.price,
+                    stock: requestedValue,
+                    unit: product.unit,
+                    category: product.category,
+                    user: counterProposal.proposer,
+                    isPublished: product.isPublished,
+                    isTradable: product.isTradable,
+                    is_perishable: product.is_perishable,
+                    has_freshness_cert: product.has_freshness_cert,
+                });
+                productsToPersist.push(newProductForProposer);
+                console.log(`Producto ${product.name} (${product._id}) stock reducido a ${product.stock} ${product.unit}.`);
+                console.log(`Nuevo producto ${newProductForProposer.name} creado para ${counterProposal.proposer} con ${newProductForProposer.stock} ${newProductForProposer.unit}.`);
+            }
+        }
+
+        // Guarda todos los documentos dentro de la transacción
+        await Promise.all(productsToPersist.map(p => p.save({ session })));
+        await counterProposal.save({ session }); // Guarda el estado actualizado de la contrapropuesta
+        if (originalProposal) { // Si existe la propuesta original, la guardamos también
+            await originalProposal.save({ session });
+        }
+
+        console.log(`Intercambio de productos completado para la contrapropuesta ${counterProposal._id}.`);
+        // --- FIN LÓGICA DE INTERCAMBIO ---
+
+        // ⭐ Confirmar la transacción ⭐
+        await session.commitTransaction();
+        session.endSession();
+
+        // --- NOTIFICACIONES ---
+        await createNotification({
+            user: counterProposal.proposer,
+            type: 'counter_accepted',
+            title: '¡Contrapropuesta Aceptada! 🎉',
+            message: `Tu contrapropuesta ha sido aceptada por ${req.user.username}. ¡Trueque completado!`,
+            relatedEntityId: acceptedCounterProposal._id,
+            relatedEntityType: 'BarterProposal',
+        });
+        await createNotification({
+            user: counterProposal.recipient,
+            type: 'counter_accepted',
+            title: '¡Trueque Completado! 🤝',
+            message: `Has aceptado la contrapropuesta de ${counterProposal.proposer.username}.`,
+            relatedEntityId: acceptedCounterProposal._id,
+            relatedEntityType: 'BarterProposal',
+        });
+        // --- FIN NOTIFICACIONES ---
+
+        res.status(200).json(acceptedCounterProposal);
+
+    } catch (error) {
+        // ⭐ Si algo falla, abortar la transacción para revertir todos los cambios ⭐
+        await session.abortTransaction();
+        session.endSession();
+        console.error('Error durante el trueque/contraoferta:', error.message);
+        // Manejar el error y enviar una respuesta adecuada
+        // Si el error ya tiene un status (como los que lanzas), úsalo. Si no, default a 500.
+        res.status(res.statusCode === 200 ? 500 : res.statusCode).json({
+            message: error.message || 'Error interno del servidor durante el trueque.',
+            stack: process.env.NODE_ENV === 'production' ? null : error.stack,
+        });
     }
-
-    // 2. Reducir la cantidad de los productos solicitados por el PROponente de la contraoferta
-    // (que el RECIPIENTE de la contraoferta estaba ofreciendo)
-    for (const requestedItem of counterProposal.requestedItems) {
-        const product = await Product.findById(requestedItem.product);
-        if (!product) {
-            console.error(`Error de trueque: Producto solicitado con ID ${requestedItem.product} no encontrado.`);
-            res.status(500);
-            throw new Error(`Error en el intercambio: Producto solicitado '${requestedItem.name}' no encontrado.`);
-        }
-
-        const { value: requestedValue, unit: requestedUnit } = parseQuantityString(requestedItem.quantity);
-
-        if (product.unit !== requestedUnit) {
-            res.status(400);
-            throw new Error(`Error de trueque: Unidades inconsistentes para el producto ${product.name}. Esperado: '${product.unit}', Solicitado: '${requestedUnit}'.`);
-        }
-
-        const newStockValue = product.stock - requestedValue;
-        if (newStockValue < 0) {
-            res.status(400);
-            throw new Error(`Error de trueque: Cantidad insuficiente de ${product.name} para el intercambio. Disponible: ${product.stock} ${product.unit}, Solicitado: ${requestedItem.quantity}.`);
-        }
-        product.stock = newStockValue;
-        await product.save();
-        console.log(`Producto ${product.name} (solicitado en contraoferta) actualizado a ${product.stock} ${product.unit}`);
-    }
-    console.log(`Intercambio de productos completado para la contrapropuesta ${counterProposal._id}.`);
-    // --- FIN LÓGICA DE INTERCAMBIO ---
-
-    // --- NOTIFICACIONES ---
-    await createNotification({
-        user: counterProposal.proposer, // Notificar al que hizo la contrapropuesta
-        type: 'counter_accepted',
-        title: '¡Contrapropuesta Aceptada!',
-        message: `Tu contrapropuesta ha sido aceptada por ${req.user.username}. ¡Trueque completado!`,
-        relatedEntityId: acceptedCounterProposal._id,
-        relatedEntityType: 'BarterProposal',
-    });
-    await createNotification({
-        user: counterProposal.recipient, // Notificar al que aceptó (confirmación)
-        type: 'counter_accepted',
-        title: '¡Trueque Completado!',
-        message: `Has aceptado la contrapropuesta de ${counterProposal.proposer.username}.`,
-        relatedEntityId: acceptedCounterProposal._id,
-        relatedEntityType: 'BarterProposal',
-    });
-    // --- FIN NOTIFICACIONES ---
-
-    res.status(200).json(acceptedCounterProposal);
 });
 
 // --- NUEVA FUNCIÓN: Rechazar Contrapropuesta ---

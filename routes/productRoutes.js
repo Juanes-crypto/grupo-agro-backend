@@ -9,21 +9,25 @@ const {
     createProduct,
     updateProduct,
     deleteProduct,
+    getProductsByUser,
 } = require('../controllers/productController');
 const { protect } = require('../middleware/authMiddleware');
-// ⭐ Importa la instancia específica para productos ⭐
 const { uploadProductImage } = require('../config/multer'); 
 
 // 🔐 Rutas privadas (¡PONLAS PRIMERO SI SON MÁS ESPECÍFICAS!)
+// Estas rutas son específicas y no deben ser "atrapadas" por :id
 router.get('/my-products', protect, getMyProducts);
-// ⭐ Usamos uploadProductImage para la subida de imágenes de productos ⭐
+router.get('/user/:userId', getProductsByUser); 
 router.post('/', protect, uploadProductImage.single('image'), createProduct);
-// ⭐ Usamos uploadProductImage para la subida de imágenes de productos ⭐
 router.put('/:id', protect, uploadProductImage.single('image'), updateProduct);
 router.delete('/:id', protect, deleteProduct);
 
-// 📦 Rutas públicas (Más generales, van después)
+// 📦 Rutas públicas (Más generales, van después de las específicas)
+// La ruta '/' es más específica que '/:id'
 router.get('/', getProducts);
+
+// ⭐ ESTA RUTA DINÁMICA DEBE IR SIEMPRE AL FINAL DE LAS RUTAS QUE EMPIEZAN CON /api/products/ ⭐
+// Esto es crucial para que no intercepte 'my-products' o 'user/:userId'
 router.get('/:id', getProductById);
 
 

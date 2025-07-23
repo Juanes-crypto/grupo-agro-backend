@@ -57,6 +57,33 @@ const getProductById = asyncHandler(async (req, res) => {
     res.status(200).json(product);
 });
 
+//obtener producto por usuario
+const getProductsByUser = asyncHandler(async (req, res) => {
+    const userId = req.params.userId; // Obtiene el ID del usuario de los parámetros de la URL
+
+    console.log(`--- Backend: getProductsByUser (Iniciando búsqueda para usuario ${userId}) ---`);
+
+    // Busca productos donde el campo 'user' (el propietario) coincida con el userId
+    // Puedes añadir filtros adicionales si solo quieres productos publicados o truequeables
+    const products = await Product.find({ user: userId, isPublished: true, isTradable: true })
+                                  .select('-__v') // Excluye el campo __v
+                                  .sort({ createdAt: -1 }); // Ordena por fecha de creación
+
+    if (!products || products.length === 0) {
+        console.log(`--- Backend: getProductsByUser (No se encontraron productos para el usuario ${userId}) ---`);
+        // Es un 404 si no hay productos, pero también podemos devolver un array vacío y un 200 si es esperado
+        // Para este caso, devolver un array vacío con 200 OK es más amigable para el frontend.
+        return res.status(200).json([]); 
+    }
+
+    console.log(`--- Backend: getProductsByUser (Productos encontrados para el usuario ${userId}: ${products.length}) ---`);
+    products.forEach((p, index) => {
+        console.log(`    Producto ${index + 1}: ID=${p._id}, Nombre=${p.name}, Stock=${p.stock} ${p.unit}`);
+    });
+    console.log('----------------------------------------------------');
+
+    res.status(200).json(products);
+});
 // @desc    Obtener los productos del usuario autenticado (NUEVA FUNCIÓN)
 // @route   GET /api/products/my-products
 // @access  Private
@@ -213,4 +240,5 @@ module.exports = {
     createProduct,
     updateProduct,
     deleteProduct,
+    getProductsByUser
 };
