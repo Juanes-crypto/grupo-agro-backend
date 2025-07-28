@@ -7,6 +7,8 @@ const { errorHandler } = require('./middleware/errorHandler');
 const connectDB = require('./config/db');
 const colors = require('colors');
 const cors = require('cors');
+const notificationRoutes = require('./routes/notificationRoutes');
+
 
 const port = process.env.PORT || 5000;
 
@@ -25,6 +27,7 @@ app.use('/api/cart', require('./routes/cartRoutes'));
 app.use('/api/premium', require('./routes/premiumRoutes'));
 app.use('/api/services', require('./routes/serviceRoutes'));
 app.use('/api/rentals', require('./routes/rentalRoutes'));
+app.use('/api/notifications', notificationRoutes);
 // ⭐ AÑADE ESTA LÍNEA PARA LAS RUTAS DE PEDIDOS ⭐
 app.use('/api/orders', require('./routes/orderRoutes'));
 // ⭐ ¡AÑADE ESTA LÍNEA CLAVE PARA LAS RUTAS DE TRUEQUE! ⭐

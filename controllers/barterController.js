@@ -234,10 +234,10 @@ const createBarterProposal = asyncHandler(async (req, res) => {
 
     // --- NOTIFICACIÓN: Nueva Propuesta de Trueque ---
     await createNotification({
-        user: recipientId, // Notificar al recipiente
+        user: productToBarterFor.user, // El dueño del producto por el que se hace el trueque
         type: 'new_barter_proposal',
         title: '¡Nueva Propuesta de Trueque!',
-        message: `Has recibido una nueva propuesta de trueque de ${req.user.username} por ${requestedItems[0].name}.`, // Mensaje más específico
+        message: `${req.user.name} te ha enviado una propuesta de trueque por tu producto "${productToBarterFor.name}".`,
         relatedEntityId: createdProposal._id,
         relatedEntityType: 'BarterProposal',
     });
@@ -322,7 +322,7 @@ const getBarterProposalById = asyncHandler(async (req, res) => {
 
 // --- Función updateBarterProposalStatus ---
 const updateBarterProposalStatus = asyncHandler(async (req, res) => {
-    const { status } = req.body; // Expected status: 'accepted', 'rejected', 'cancelled'
+    const { status } = req.body; 
     const proposalId = req.params.id;
     const userId = req.user._id;
 
@@ -471,64 +471,64 @@ const updateBarterProposalStatus = asyncHandler(async (req, res) => {
         // ⭐ Confirmar la transacción ⭐
         await session.commitTransaction();
         session.endSession();
-
+        let notificationRecipientId;
+        let notificationType;
+        let notificationTitle;
+        let notificationMessage;
         // --- NOTIFICACIONES ---
-        if (status === 'accepted') {
-            await createNotification({
-                user: proposal.proposer,
-                type: 'barter_accepted',
-                title: '¡Propuesta de Trueque Aceptada! 🎉',
-                message: `Tu propuesta de trueque con ${req.user.username} ha sido aceptada.`,
-                relatedEntityId: proposal._id,
-                relatedEntityType: 'BarterProposal',
-            });
-            await createNotification({
-                user: proposal.recipient,
-                type: 'barter_accepted',
-                title: '¡Trueque Completado! 🤝',
-                message: `Has aceptado la propuesta de trueque de ${proposal.proposer.username}.`,
-                relatedEntityId: proposal._id,
-                relatedEntityType: 'BarterProposal',
-            });
-        } else if (status === 'rejected') {
-            await createNotification({
-                user: proposal.proposer,
-                type: 'barter_rejected',
-                title: 'Propuesta de Trueque Rechazada',
-                message: `Tu propuesta de trueque con ${proposal.recipient.username} ha sido rechazada.`,
-                relatedEntityId: proposal._id,
-                relatedEntityType: 'BarterProposal',
-            });
-            await createNotification({
-                user: proposal.recipient,
-                type: 'barter_rejected',
-                title: 'Propuesta de Trueque Rechazada',
-                message: `Has rechazado la propuesta de trueque de ${proposal.proposer.username}.`,
-                relatedEntityId: proposal._id,
-                relatedEntityType: 'BarterProposal',
-            });
-        } else if (status === 'cancelled') {
-            const otherUserId = proposal.proposer.toString() === userId.toString() ? proposal.recipient : proposal.proposer;
-            await createNotification({
-                user: otherUserId,
-                type: 'barter_cancelled',
-                title: 'Propuesta de Trueque Cancelada',
-                message: `La propuesta de trueque con ${req.user.username} ha sido cancelada.`,
-                relatedEntityId: proposal._id,
-                relatedEntityType: 'BarterProposal',
-            });
-            await createNotification({
-                user: userId,
-                type: 'barter_cancelled',
-                title: 'Propuesta de Trueque Cancelada',
-                message: `Has cancelado la propuesta de trueque.`,
-                relatedEntityId: proposal._id,
-                relatedEntityType: 'BarterProposal',
-            });
-        }
+        switch (status) {
+        case 'accepted':
+            proposal.status = 'accepted';
+            notificationRecipientId = proposal.proposer._id;
+            notificationType = 'barter_accepted';
+            notificationTitle = '¡Propuesta de Trueque Aceptada!';
+            notificationMessage = `Tu propuesta por "${proposal.product.name}" ha sido ACEPTADA por ${req.user.name}.`;
+            break;
+        case 'rejected':
+            proposal.status = 'rejected';
+            notificationRecipientId = proposal.proposer._id;
+            notificationType = 'barter_rejected';
+            notificationTitle = 'Propuesta de Trueque Rechazada';
+            notificationMessage = `Tu propuesta por "${proposal.product.name}" ha sido RECHAZADA por ${req.user.name}.`;
+            break;
+        case 'countered':
+            if (!counterOfferMessage || !counterOfferProductId) {
+                res.status(400);
+                throw new Error('Se requiere un mensaje y un producto para la contraoferta.');
+            }
+            // Lógica para verificar el counterOfferProductId...
+            const counterProduct = await Product.findById(counterOfferProductId);
+            if (!counterProduct || counterProduct.user.toString() !== req.user._id.toString()) {
+                res.status(400);
+                throw new Error('El producto de contraoferta no es válido o no te pertenece.');
+            }
+
+            proposal.status = 'countered';
+            proposal.counterOfferMessage = counterOfferMessage;
+            proposal.counterOfferProduct = counterOfferProductId; // Guarda la referencia al producto
+            notificationRecipientId = proposal.proposer._id;
+            notificationType = 'barter_countered';
+            notificationTitle = '¡Contraoferta de Trueque!';
+            notificationMessage = `${req.user.name} ha hecho una CONTRAOFERTA a tu propuesta por "${proposal.product.name}": "${counterOfferMessage}".`;
+            break;
+        default:
+            res.status(400);
+            throw new Error('Estado de propuesta no válido.');
+    }
+    const updatedProposal = await proposal.save();
+
+    // --- GENERAR NOTIFICACIÓN PARA EL PROPONENTE DE LA OFERTA ---
+    await createNotification({
+        user: notificationRecipientId,
+        type: notificationType,
+        title: notificationTitle,
+        message: notificationMessage,
+        relatedEntityId: updatedProposal._id,
+        relatedEntityType: 'BarterProposal',
+    });
         // --- FIN NOTIFICACIONES ---
 
-        res.status(200).json(proposal); // Envía la propuesta actualizada
+        res.status(200).json(updatedProposal); // Envía la propuesta actualizada
 
     } catch (error) {
         // ⭐ Si algo falla, abortar la transacción para revertir todos los cambios ⭐
