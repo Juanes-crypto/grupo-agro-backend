@@ -4,17 +4,20 @@ const User = require('../models/User');
 const cloudinary = require('../config/cloudinary');
 
 const getServices = asyncHandler(async (req, res) => {
-    const services = await Service.find({ isPublished: true }).populate('user', 'name isPremium');
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const services = await Service.find({ isPublished: true }).populate('user', 'name isPremium phoneNumber showPhoneNumber');
     res.status(200).json(services);
 });
 
 const getMyServices = asyncHandler(async (req, res) => {
-    const services = await Service.find({ user: req.user.id }).populate('user', 'name isPremium');
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const services = await Service.find({ user: req.user.id }).populate('user', 'name isPremium phoneNumber showPhoneNumber');
     res.status(200).json(services);
 });
 
 const getServiceById = asyncHandler(async (req, res) => {
-    const service = await Service.findById(req.params.id).populate('user', 'name isPremium');
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const service = await Service.findById(req.params.id).populate('user', 'name isPremium phoneNumber showPhoneNumber');
 
     if (!service) {
         res.status(404);
@@ -31,13 +34,6 @@ const getServiceById = asyncHandler(async (req, res) => {
 
 const createService = asyncHandler(async (req, res) => {
     const { name, description, experience, price, category, isTradable } = req.body; 
-
-    // ⭐ LÍNEAS ELIMINADAS: Ya no se verifica si el usuario es premium para crear servicios ⭐
-    // const user = await User.findById(req.user.id);
-    // if (!user || !user.isPremium) {
-    //     res.status(403);
-    //     throw new Error('Solo usuarios premium pueden crear servicios.');
-    // }
 
     if (!name || !description || !experience || price === undefined || price === '' || !category) { 
         res.status(400);

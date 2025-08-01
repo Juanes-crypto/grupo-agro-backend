@@ -24,15 +24,22 @@ const registerValidation = [
     check('name')
         .notEmpty().withMessage('El nombre es requerido.')
         .isLength({ min: 3 }).withMessage('El nombre debe tener al menos 3 caracteres.')
-        .trim().escape(), // Sanitizar el nombre
+        .trim().escape(),
     check('email')
         .notEmpty().withMessage('El correo electrónico es requerido.')
         .isEmail().withMessage('Formato de correo electrónico inválido.')
-        .normalizeEmail(), // Normalizar el correo electrónico
+        .normalizeEmail(),
     check('password')
         .notEmpty().withMessage('La contraseña es requerida.')
         .isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres.'),
-    // No se valida 'profilePicture' aquí directamente, se maneja en Multer y luego en el controlador
+    check('phoneNumber')
+        .optional()
+        // ⭐ CAMBIO AQUÍ: Validar como 10 dígitos numéricos ⭐
+        .isNumeric().withMessage('El número de teléfono debe contener solo dígitos.')
+        .isLength({ min: 10, max: 10 }).withMessage('El número de teléfono debe tener 10 dígitos.'),
+    check('showPhoneNumber')
+        .optional()
+        .isBoolean().withMessage('El campo showPhoneNumber debe ser booleano.'),
 ];
 
 // Validaciones para el login de usuario
@@ -48,16 +55,24 @@ const loginValidation = [
 // Validaciones para la actualización de perfil de usuario
 const updateProfileValidation = [
     check('name')
-        .optional() // El nombre es opcional al actualizar
+        .optional()
         .isLength({ min: 3 }).withMessage('El nombre debe tener al menos 3 caracteres si se proporciona.')
         .trim().escape(),
     check('email')
-        .optional() // El email es opcional al actualizar
+        .optional()
         .isEmail().withMessage('Formato de correo electrónico inválido si se proporciona.')
         .normalizeEmail(),
     check('password')
-        .optional() // La contraseña es opcional al actualizar
+        .optional()
         .isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres si se proporciona.'),
+    check('phoneNumber')
+        .optional()
+        // ⭐ CAMBIO AQUÍ: Validar como 10 dígitos numéricos ⭐
+        .isNumeric().withMessage('El número de teléfono debe contener solo dígitos.')
+        .isLength({ min: 10, max: 10 }).withMessage('El número de teléfono debe tener 10 dígitos.'),
+    check('showPhoneNumber')
+        .optional()
+        .isBoolean().withMessage('El campo showPhoneNumber debe ser booleano.'),
 ];
 
 
@@ -86,6 +101,8 @@ const loginUser = asyncHandler(async (req, res) => {
                 isPremium: user.isPremium,
                 profilePicture: user.profilePicture,
                 role: user.role,
+                phoneNumber: user.phoneNumber,
+                showPhoneNumber: user.showPhoneNumber,
             },
             token: generateToken(user._id),
         });
@@ -105,7 +122,7 @@ const registerUser = asyncHandler(async (req, res) => {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, email, password } = req.body;
+    const { name, email, password, phoneNumber, showPhoneNumber } = req.body;
     const profilePicture = req.file ? req.file.path : ''; // URL de Cloudinary si se subió un archivo
 
     const userExists = await User.findOne({ email });
@@ -125,6 +142,8 @@ const registerUser = asyncHandler(async (req, res) => {
         profilePicture: profilePicture,
         isPremium: false,
         role: 'user',
+        phoneNumber: phoneNumber || '',
+        showPhoneNumber: showPhoneNumber || false,
     });
 
     if (user) {
@@ -136,6 +155,8 @@ const registerUser = asyncHandler(async (req, res) => {
                 isPremium: user.isPremium,
                 profilePicture: user.profilePicture,
                 role: user.role,
+                phoneNumber: user.phoneNumber,
+                showPhoneNumber: user.showPhoneNumber,
             },
             token: generateToken(user._id),
         });
@@ -156,6 +177,8 @@ const getMe = asyncHandler(async (req, res) => {
         isPremium: req.user.isPremium,
         profilePicture: req.user.profilePicture,
         role: req.user.role,
+        phoneNumber: req.user.phoneNumber,
+        showPhoneNumber: req.user.showPhoneNumber,
     });
 });
 
@@ -189,6 +212,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         }
         user.email = req.body.email;
     }
+    if (req.body.phoneNumber !== undefined) user.phoneNumber = req.body.phoneNumber;
+    if (req.body.showPhoneNumber !== undefined) user.showPhoneNumber = req.body.showPhoneNumber;
 
     // Si se proporciona una nueva contraseña, encriptarla
     if (req.body.password) {
@@ -210,6 +235,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         isPremium: updatedUser.isPremium,
         profilePicture: updatedUser.profilePicture,
         role: updatedUser.role,
+        phoneNumber: updatedUser.phoneNumber,
+        showPhoneNumber: updatedUser.showPhoneNumber,
         token: generateToken(updatedUser._id),
     });
 });

@@ -32,7 +32,7 @@ const getProducts = asyncHandler(async (req, res) => {
     }
 
     const products = await Product.find(query)
-                                  .populate('user', 'name reputation isPremium')
+                                  .populate('user', 'name reputation isPremium phoneNumber showPhoneNumber')
                                   .sort({ createdAt: -1 });
 
     res.status(200).json(products);
@@ -42,7 +42,7 @@ const getProducts = asyncHandler(async (req, res) => {
 // @route   GET /api/products/:id
 // @access  Public
 const getProductById = asyncHandler(async (req, res) => {
-    const product = await Product.findById(req.params.id).populate('user', 'isPremium');
+    const product = await Product.findById(req.params.id).populate('user', 'isPremium phoneNumber showPhoneNumber');
 
     if (!product) {
         res.status(404);

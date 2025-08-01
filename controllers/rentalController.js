@@ -1,17 +1,19 @@
-// controllers/rentalController.js
 const asyncHandler = require('express-async-handler');
 const Rental = require('../models/Rental');
 const User = require('../models/User'); // Asegúrate de importar el modelo de Usuario si no lo estás haciendo ya
 const cloudinary = require('../config/cloudinary');
+
 const getRentals = asyncHandler(async (req, res) => {
     // Añadimos .populate('owner') para traer la información completa del usuario propietario
-    const rentals = await Rental.find({}).populate('owner', 'name email isPremium'); // Trae name, email, isPremium del owner
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const rentals = await Rental.find({}).populate('owner', 'name email isPremium phoneNumber showPhoneNumber'); // Trae name, email, isPremium, phoneNumber y showPhoneNumber del owner
     res.status(200).json(rentals);
 });
 
 const getRentalById = asyncHandler(async (req, res) => {
     // También populamos el owner para los detalles de una sola renta
-    const rental = await Rental.findById(req.params.id).populate('owner', 'name email isPremium');
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const rental = await Rental.findById(req.params.id).populate('owner', 'name email isPremium phoneNumber showPhoneNumber');
 
     if (!rental) {
         res.status(404);
@@ -22,7 +24,8 @@ const getRentalById = asyncHandler(async (req, res) => {
 
 const getMyRentals = asyncHandler(async (req, res) => {
     // Populamos el owner también para "Mis Rentas"
-    const rentals = await Rental.find({ owner: req.user.id }).populate('owner', 'name email isPremium');
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const rentals = await Rental.find({ owner: req.user.id }).populate('owner', 'name email isPremium phoneNumber showPhoneNumber');
     res.status(200).json(rentals);
 });
 
@@ -54,13 +57,15 @@ const createRental = asyncHandler(async (req, res) => {
     });
 
     // Para la respuesta de creación, también populamos el owner para que el frontend reciba la info completa
-    const createdRental = await Rental.findById(rental._id).populate('owner', 'name email isPremium');
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const createdRental = await Rental.findById(rental._id).populate('owner', 'name email isPremium phoneNumber showPhoneNumber');
 
     res.status(201).json(createdRental);
 });
 
 const updateRental = asyncHandler(async (req, res) => {
-    const rental = await Rental.findById(req.params.id).populate('owner'); // Populamos para verificar el owner
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const rental = await Rental.findById(req.params.id).populate('owner', 'name email isPremium phoneNumber showPhoneNumber'); // Populamos para verificar el owner y obtener los nuevos campos
 
     if (!rental) {
         res.status(404);
@@ -84,13 +89,14 @@ const updateRental = asyncHandler(async (req, res) => {
         req.params.id,
         { ...req.body, imageUrl },
         { new: true }
-    ).populate('owner', 'name email isPremium'); // Populamos también la respuesta de actualización
+    ).populate('owner', 'name email isPremium phoneNumber showPhoneNumber'); // Populamos también la respuesta de actualización con los nuevos campos
 
     res.status(200).json(updatedRental);
 });
 
 const deleteRental = asyncHandler(async (req, res) => {
-    const rental = await Rental.findById(req.params.id).populate('owner'); // Populamos para verificar el owner
+    // MODIFICADO: Añadido 'phoneNumber showPhoneNumber' para poblar
+    const rental = await Rental.findById(req.params.id).populate('owner', 'name email isPremium phoneNumber showPhoneNumber'); // Populamos para verificar el owner y obtener los nuevos campos
 
     if (!rental) {
         res.status(404);

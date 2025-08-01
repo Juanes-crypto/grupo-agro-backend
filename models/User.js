@@ -17,10 +17,9 @@ const userSchema = mongoose.Schema(
             type: String,
             required: [true, 'Por favor, añade una contraseña'],
         },
-        // ⭐ Nuevo campo para la imagen de perfil ⭐
         profilePicture: {
-            type: String, // Guardaremos la URL de Cloudinary aquí
-            default: '', // Valor por defecto si no se sube ninguna imagen
+            type: String,
+            default: '',
         },
         isPremium: {
             type: Boolean,
@@ -37,6 +36,16 @@ const userSchema = mongoose.Schema(
             min: 1,
             max: 5
         },
+        // ⭐ NUEVO CAMPO: Número de teléfono para WhatsApp ⭐
+        phoneNumber: {
+            type: String,
+            default: '',
+        },
+        // ⭐ NUEVO CAMPO OPCIONAL: Control de visibilidad del número ⭐
+        showPhoneNumber: {
+            type: Boolean,
+            default: false,
+        }
     },
     {
         timestamps: true,
