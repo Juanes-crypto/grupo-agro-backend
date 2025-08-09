@@ -35,17 +35,20 @@ app.use('/api/barter', require('./routes/barterRoutes'));
 
 
 // Servir frontend
-if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// if (process.env.NODE_ENV === 'production') {
+//     app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
-    app.get('*', (req, res) =>
-        res.sendFile(
-            path.resolve(__dirname, '../frontend', 'dist', 'index.html')
-        )
-    );
-} else {
-    app.get('/', (req, res) => res.send('Please set to production'));
-}
+//     app.get('*', (req, res) =>
+//         res.sendFile(
+//             path.resolve(__dirname, '../frontend', 'dist', 'index.html')
+//         )
+//     );
+// } else {
+//     app.get('/', (req, res) => res.send('Please set to production'));
+// }
+app.get('/', (req, res) => {
+    res.json({ message: 'API de AgroApp' });
+});
 
 app.use(errorHandler);
 
