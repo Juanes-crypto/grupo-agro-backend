@@ -4,7 +4,6 @@ const dotenv = require('dotenv').config();
 const { errorHandler } = require('./middleware/errorHandler');
 const connectDB = require('./config/db');
 const colors = require('colors');
-const cors = require('cors');
 const notificationRoutes = require('./routes/notificationRoutes');
 
 const port = process.env.PORT || 5000;
@@ -14,46 +13,40 @@ connectDB();
 
 const app = express();
 
-// Configuración MEJORADA de CORS
+// Configuración MEJORADA de CORS - Versión definitiva
 const allowedOrigins = [
-  'https://agroapp-frontend.onrender.com',
-  'https://agroapp-ui.onrender.com', // Añade ambas URLs por seguridad
+  'https://agroapp-ui.onrender.com', // URL CORRECTA del frontend
+  'https://agroapp-frontend.onrender.com', // Por si acaso
   'http://localhost:5173'
 ];
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-};
 
-// Habilitar CORS pre-flight para todas las rutas
-app.options('*', cors(corsOptions));
-app.use(cors(corsOptions));
+// Middleware CORS manual para peticiones OPTIONS
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Vary', 'Origin'); // Importante para caché
+  }
+  res.status(204).end(); // Respuesta vacía para OPTIONS
+});
 
-// Middleware para cookies
-const cookieParser = require('cookie-parser');
-app.use(cookieParser());
-
-// Middleware para headers CORS (IMPORTANTE)
+// Middleware CORS para todas las demás peticiones
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Vary', 'Origin');
   }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   next();
 });
+
+// Configuración de cookies seguras (DEBE ir antes de las rutas)
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 
 // Resto de middlewares
 app.use(express.json());
@@ -88,6 +81,7 @@ const server = app.listen(port, () => {
   console.log(`Modo: ${process.env.NODE_ENV || 'development'}`.yellow);
   console.log(`URL: http://localhost:${port}`.green);
   console.log(`CORS permitido para frontend:`.blue);
+  console.log('- https://agroapp-ui.onrender.com'.blue);
   console.log('- https://agroapp-frontend.onrender.com'.blue);
   console.log('- http://localhost:5173\n'.blue);
 });

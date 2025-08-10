@@ -83,9 +83,7 @@ const updateProfileValidation = [
 // @access  Public
 const loginUser = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   const { email, password } = req.body;
   const user = await User.findOne({ email });
@@ -93,27 +91,27 @@ const loginUser = asyncHandler(async (req, res) => {
   if (user && (await bcrypt.compare(password, user.password))) {
     const token = generateToken(user._id);
     
-    // Configura la cookie segura
-    res.cookie('token', token, {
+    // Configuración MEJORADA de cookies
+    res.cookie('agroapp_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none', // Cambiado a 'none' para cross-site
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
+      secure: true, // Obligatorio con sameSite: 'none'
+      sameSite: 'none',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      domain: '.render.com' // Dominio compartido entre frontend y backend
     });
 
-    res.status(200).json({
+    return res.json({
       user: {
         _id: user._id,
         name: user.name,
         email: user.email,
-        isPremium: user.isPremium,
-        profilePicture: user.profilePicture
+        isPremium: user.isPremium
       },
-      token // También envía el token en el body
+      token // También en el body por si fallan las cookies
     });
-  } else {
-    res.status(401).json({ message: 'Credenciales inválidas' });
   }
+  
+  return res.status(401).json({ message: 'Credenciales inválidas' });
 });
 
 // @desc    Registrar un nuevo usuario
