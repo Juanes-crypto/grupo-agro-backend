@@ -1,4 +1,3 @@
-// agroapp-backend/server.js
 const path = require('path');
 const express = require('express');
 const dotenv = require('dotenv').config();
@@ -15,28 +14,52 @@ connectDB();
 
 const app = express();
 
-// Configuración mejorada de CORS
-app.use(cors({
-  origin: [
-    'https://agroapp-ui.onrender.com', // URL CORREGIDA
-    'http://localhost:5173'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+// Configuración MEJORADA de CORS
+const allowedOrigins = [
+  'https://agroapp-frontend.onrender.com',
+  'https://agroapp-ui.onrender.com', // Añade ambas URLs por seguridad
+  'http://localhost:5173'
+];
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
 
+// Habilitar CORS pre-flight para todas las rutas
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
+
+// Middleware para cookies
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
+
+// Middleware para headers CORS (IMPORTANTE)
 app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Expose-Headers', 'Authorization'); // Importante para que el frontend pueda leer el header Authorization
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   next();
 });
 
-// Middlewares
+// Resto de middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Rutas de la API
+// Rutas de la API (sin cambios)
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/cart', require('./routes/cartRoutes'));
@@ -72,5 +95,7 @@ const server = app.listen(port, () => {
 // Manejo de errores no capturados
 process.on('unhandledRejection', (err) => {
   console.error(`Error no capturado: ${err.message}`.red);
-  server.close(() => process.exit(1));
+  server.close(() => {
+    process.exit(1);
+  });
 });

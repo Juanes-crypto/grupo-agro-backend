@@ -82,34 +82,38 @@ const updateProfileValidation = [
 // @route   POST /api/users/login
 // @access  Public
 const loginUser = asyncHandler(async (req, res) => {
-    // ⭐ Manejo de errores de validación ⭐
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-    const { email, password } = req.body;
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
 
-    const user = await User.findOne({ email });
+  if (user && (await bcrypt.compare(password, user.password))) {
+    const token = generateToken(user._id);
+    
+    // Configura la cookie segura
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'none', // Cambiado a 'none' para cross-site
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
+    });
 
-    if (user && (await bcrypt.compare(password, user.password))) {
-        res.json({
-            user: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                isPremium: user.isPremium,
-                profilePicture: user.profilePicture,
-                role: user.role,
-                phoneNumber: user.phoneNumber,
-                showPhoneNumber: user.showPhoneNumber,
-            },
-            token: generateToken(user._id),
-        });
-    } else {
-        res.status(401);
-        throw new Error('Credenciales inválidas.'); // Mensaje genérico por seguridad
-    }
+    res.status(200).json({
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        isPremium: user.isPremium,
+        profilePicture: user.profilePicture
+      },
+      token // También envía el token en el body
+    });
+  } else {
+    res.status(401).json({ message: 'Credenciales inválidas' });
+  }
 });
 
 // @desc    Registrar un nuevo usuario
