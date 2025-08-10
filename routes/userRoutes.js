@@ -1,6 +1,17 @@
 const express = require("express");
 const router = express.Router();
 
+router.get('/', (req, res) => {
+  res.json({ 
+    message: "API de Usuarios funcionando",
+    endpoints: {
+      register: "POST /api/users/register",
+      login: "POST /api/users/login",
+      profile: "GET/PUT /api/users/profile"
+    }
+  });
+});
+
 const {
     registerUser,
     loginUser,
