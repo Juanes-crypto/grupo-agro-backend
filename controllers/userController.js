@@ -82,22 +82,18 @@ const updateProfileValidation = [
 // @route   POST /api/users/login
 // @access  Public
 const loginUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
   const { email, password } = req.body;
   const user = await User.findOne({ email });
 
   if (user && (await bcrypt.compare(password, user.password))) {
     const token = generateToken(user._id);
     
-    // Configuración MEJORADA de cookies
-    res.cookie('agroapp_token', token, {
+    // Configuración simplificada de cookies
+    res.cookie('token', token, {
       httpOnly: true,
-      secure: true, // Obligatorio con sameSite: 'none'
+      secure: true,
       sameSite: 'none',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      domain: '.render.com' // Dominio compartido entre frontend y backend
+      maxAge: 30 * 24 * 60 * 60 * 1000
     });
 
     return res.json({
@@ -107,7 +103,7 @@ const loginUser = asyncHandler(async (req, res) => {
         email: user.email,
         isPremium: user.isPremium
       },
-      token // También en el body por si fallan las cookies
+      token
     });
   }
   
