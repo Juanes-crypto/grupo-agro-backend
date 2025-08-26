@@ -36,15 +36,30 @@ const userSchema = mongoose.Schema(
             min: 1,
             max: 5
         },
-        // ⭐ NUEVO CAMPO: Número de teléfono para WhatsApp ⭐
         phoneNumber: {
             type: String,
             default: '',
         },
-        // ⭐ NUEVO CAMPO OPCIONAL: Control de visibilidad del número ⭐
         showPhoneNumber: {
             type: Boolean,
             default: false,
+        },
+        location: {
+            type: {
+                city: {
+                    type: String,
+                    required: [true, 'Por favor, especifica la ciudad'],
+                },
+                address: {
+                    type: String,
+                    required: [true, 'Por favor, especifica la dirección completa'],
+                },
+                coordinates: {
+                    type: [Number],
+                    required: [true, 'Las coordenadas son necesarias para los filtros'],
+                }
+            },
+            required: [true, 'La ubicación es un campo requerido'],
         }
     },
     {
