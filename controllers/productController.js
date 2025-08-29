@@ -235,10 +235,10 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
 module.exports = {
     getProducts,
-    getProductById,
+    getProduct: getProductById,          // ← Exporta getProductById como getProduct
     getMyProducts,
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductsByUser
+    getUserProducts: getProductsByUser   // ← Exporta getProductsByUser como getUserProducts
 };

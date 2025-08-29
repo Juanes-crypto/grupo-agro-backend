@@ -1,39 +1,54 @@
 // agroapp-backend/config/multer.js
-
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const cloudinary = require('./cloudinary'); // Tu archivo de configuración de Cloudinary
+const cloudinary = require('./cloudinary');
 
 // 1. Configuración para IMÁGENES DE PRODUCTOS
 const productStorage = new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: {
-        folder: 'agroapp_products', // Carpeta en Cloudinary para productos
-        format: async (req, file) => 'png', // Puedes ajustar el formato (ej. 'jpeg', 'webp')
-        public_id: (req, file) => `product-${file.fieldname}-${Date.now()}`, // Nombre público basado en el campo y timestamp
-    },
+  cloudinary: cloudinary,
+  params: {
+    folder: 'agroapp_products',
+    format: async (req, file) => 'png',
+    public_id: (req, file) => `product-${file.fieldname}-${Date.now()}`,
+  },
 });
 
 const uploadProductImage = multer({ storage: productStorage });
 
-// 2. Configuración para FOTOS DE PERFIL DE USUARIO
+// 2. Configuración para FOTOS DE PERFIL DE USUARIOS
 const profilePictureStorage = new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: {
-        folder: 'agroapp_profile_pictures', // Carpeta específica en Cloudinary para fotos de perfil
-        format: async (req, file) => 'png', // Asegúrate de que el formato sea apropiado (ej. 'jpeg', 'webp')
-        public_id: (req, file) => {
-            // Usa el ID del usuario si está disponible (para actualizaciones de perfil),
-            // de lo contrario, usa un timestamp (para registro)
-            return `user-${req.user ? req.user._id : Date.now()}-${file.fieldname}`;
-        },
-    },
+  cloudinary: cloudinary,
+  params: {
+    folder: 'agroapp_profile_pictures',
+    format: async (req, file) => 'png',
+    public_id: (req, file) => `user-${Date.now()}-${file.originalname}`,
+  },
 });
 
-const uploadProfilePicture = multer({ storage: profilePictureStorage });
+const upload = multer({ 
+  storage: profilePictureStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 
-// ⭐ Exporta ambas instancias como módulos nombrados ⭐
+// Middleware para registro de usuarios
+const uploadRegister = upload.fields([
+  { name: 'profilePicture', maxCount: 1 },
+  { name: 'name', maxCount: 1 },
+  { name: 'email', maxCount: 1 },
+  { name: 'password', maxCount: 1 },
+  { name: 'phoneNumber', maxCount: 1 },
+  { name: 'showPhoneNumber', maxCount: 1 },
+  { name: 'locationCity', maxCount: 1 },
+  { name: 'locationAddress', maxCount: 1 },
+  { name: 'locationLongitude', maxCount: 1 },
+  { name: 'locationLatitude', maxCount: 1 }
+]);
+
+// Middleware para actualización de perfil
+const uploadProfileUpdate = upload.single('profilePicture');
+
 module.exports = {
-    uploadProductImage,     // Usa esta para subir imágenes de productos
-    uploadProfilePicture,   // Usa esta para subir fotos de perfil de usuario
+  uploadProductImage,      // Para productos
+  uploadRegister,          // Para registro de usuarios
+  uploadProfileUpdate      // Para actualización de perfil
 };

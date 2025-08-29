@@ -3,18 +3,68 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const asyncHandler = require('express-async-handler');
+const axios = require('axios');
 const User = require('../models/User');
-// ⭐ Importar 'check' y 'validationResult' de express-validator ⭐
 const { check, validationResult } = require('express-validator');
-
-// NO NECESITAS IMPORTAR uploadProfilePicture AQUÍ, solo en las rutas.
-// const { uploadProfilePicture } = require('../config/multer'); 
 
 // ⭐ Función para generar JWT ⭐
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: '30d',
+        expiresIn: '3d',
     });
+};
+
+// ⭐ Middleware de verificación reCAPTCHA ⭐
+// Middleware de verificación reCAPTCHA - VERSIÓN CORREGIDA
+const verifyRecaptcha = async (req, res, next) => {
+  let recaptchaToken;
+  
+  // Para FormData (registro)
+  if (req.body.recaptchaToken) {
+    recaptchaToken = req.body.recaptchaToken;
+  } 
+  // Para JSON (login)
+  else if (req.body.recaptchaToken) {
+    recaptchaToken = req.body.recaptchaToken;
+  }
+
+  if (!recaptchaToken) {
+    return res.status(400).json({
+      success: false,
+      message: 'Token reCAPTCHA es requerido'
+    });
+  }
+
+  try {
+    const response = await axios.post(
+      `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${recaptchaToken}`
+    );
+
+    const { success, score } = response.data;
+
+    if (!success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token reCAPTCHA inválido o expirado'
+      });
+    }
+
+    // Umbral para registro
+    if (score < 0.5) { // Reducido a 0.5 para testing
+      return res.status(400).json({
+        success: false,
+        message: 'Actividad sospechosa detectada. Por favor, inténtalo de nuevo.'
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Error verifying reCAPTCHA:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al verificar CAPTCHA'
+    });
+  }
 };
 
 // --- Middleware de Validación ---
@@ -34,7 +84,6 @@ const registerValidation = [
         .isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres.'),
     check('phoneNumber')
         .optional()
-        // ⭐ CAMBIO AQUÍ: Validar como 10 dígitos numéricos ⭐
         .isNumeric().withMessage('El número de teléfono debe contener solo dígitos.')
         .isLength({ min: 10, max: 10 }).withMessage('El número de teléfono debe tener 10 dígitos.'),
     check('showPhoneNumber')
@@ -67,7 +116,6 @@ const updateProfileValidation = [
         .isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres si se proporciona.'),
     check('phoneNumber')
         .optional()
-        // ⭐ CAMBIO AQUÍ: Validar como 10 dígitos numéricos ⭐
         .isNumeric().withMessage('El número de teléfono debe contener solo dígitos.')
         .isLength({ min: 10, max: 10 }).withMessage('El número de teléfono debe tener 10 dígitos.'),
     check('showPhoneNumber')
@@ -75,13 +123,16 @@ const updateProfileValidation = [
         .isBoolean().withMessage('El campo showPhoneNumber debe ser booleano.'),
 ];
 
-
-// --- Controladores de Usuario ---
-
 // @desc    Autenticar un usuario
 // @route   POST /api/users/login
 // @access  Public
 const loginUser = asyncHandler(async (req, res) => {
+  // Validar antes de verificar reCAPTCHA
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   const { email, password } = req.body;
   const user = await User.findOne({ email });
 
@@ -114,53 +165,96 @@ const loginUser = asyncHandler(async (req, res) => {
 // @route   POST /api/users/register
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-    // ⭐ Manejo de errores de validación ⭐
+    console.log('=== REGISTER REQUEST RECEIVED ===');
+    console.log('req.body:', req.body);
+    console.log('req.file:', req.files);
+
+    // Validaciones
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, email, password, phoneNumber, showPhoneNumber } = req.body;
-    const profilePicture = req.file ? req.file.path : ''; // URL de Cloudinary si se subió un archivo
+    const { name, email, password, phoneNumber, showPhoneNumber, location } = req.body;
+    
+    // Verificar que la ubicación esté presente
+    if (!location) {
+        return res.status(400).json({ 
+            message: 'La ubicación es requerida' 
+        });
+    }
+
+    // ✅ Obtener la imagen de perfil de req.files
+    const profilePicture = req.files && req.files['profilePicture'] 
+        ? req.files['profilePicture'][0].path 
+        : '';
 
     const userExists = await User.findOne({ email });
 
     if (userExists) {
-        res.status(400);
-        throw new Error('El correo electrónico ya está registrado.');
+        return res.status(400).json({ 
+            message: 'El correo electrónico ya está registrado.' 
+        });
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const user = await User.create({
-        name,
-        email,
-        password: hashedPassword,
-        profilePicture: profilePicture,
-        isPremium: false,
-        role: 'user',
-        phoneNumber: phoneNumber || '',
-        showPhoneNumber: showPhoneNumber || false,
-    });
-
-    if (user) {
-        res.status(201).json({
-            user: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                isPremium: user.isPremium,
-                profilePicture: user.profilePicture,
-                role: user.role,
-                phoneNumber: user.phoneNumber,
-                showPhoneNumber: user.showPhoneNumber,
-            },
-            token: generateToken(user._id),
+    try {
+        const user = await User.create({
+            name,
+            email,
+            password: hashedPassword,
+            profilePicture: profilePicture,
+            isPremium: false,
+            role: 'user',
+            phoneNumber: phoneNumber || '',
+            showPhoneNumber: showPhoneNumber === 'true' || showPhoneNumber === true,
+            location: location
         });
-    } else {
-        res.status(400);
-        throw new Error('Datos de usuario inválidos.');
+
+        if (user) {
+            res.status(201).json({
+                user: {
+                    _id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    isPremium: user.isPremium,
+                    profilePicture: user.profilePicture,
+                    role: user.role,
+                    phoneNumber: user.phoneNumber,
+                    showPhoneNumber: user.showPhoneNumber,
+                    location: user.location
+                },
+                token: generateToken(user._id),
+            });
+        } else {
+            return res.status(400).json({ 
+                message: 'Datos de usuario inválidos.' 
+            });
+        }
+    } catch (error) {
+        // Capturar errores de validación de Mongoose
+        if (error.name === 'ValidationError') {
+            console.log('Mongoose validation error:', error.errors);
+            const errorMessages = Object.values(error.errors).map(err => err.message);
+            return res.status(400).json({ 
+                message: errorMessages.join(', ') 
+            });
+        }
+        
+        // Capturar errores de duplicado
+        if (error.code === 11000) {
+            return res.status(400).json({ 
+                message: 'El correo electrónico ya está registrado.' 
+            });
+        }
+        
+        // Propagar otros errores
+        console.error('Error creating user:', error);
+        return res.status(500).json({ 
+            message: 'Error interno del servidor al crear usuario' 
+        });
     }
 });
 
@@ -184,7 +278,10 @@ const getMe = asyncHandler(async (req, res) => {
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
-    // ⭐ Manejo de errores de validación ⭐
+    console.log('=== UPDATE PROFILE REQUEST RECEIVED ===');
+    console.log('req.body:', req.body);
+    console.log('req.file:', req.file);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
@@ -200,7 +297,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     // Actualizar campos de texto si se proporcionan
     if (req.body.name) user.name = req.body.name;
     if (req.body.email) {
-        // Si el email cambia, verificar que el nuevo email no exista ya
         if (req.body.email !== user.email) {
             const emailExists = await User.findOne({ email: req.body.email });
             if (emailExists && emailExists._id.toString() !== user._id.toString()) {
@@ -219,7 +315,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         user.password = await bcrypt.hash(req.body.password, salt);
     }
     
-    // ⭐ Actualizar foto de perfil si se subió una nueva ⭐
+    // Actualizar foto de perfil
     if (req.file) {
         user.profilePicture = req.file.path;
     }
@@ -265,14 +361,15 @@ const updateUserPremiumStatus = asyncHandler(async (req, res) => {
     }
 });
 
-
 module.exports = {
     registerUser,
     loginUser,
     getMe,
     updateUserProfile,
     updateUserPremiumStatus,
-    // ⭐ Exportar los middlewares de validación para usarlos en las rutas ⭐
+    // ⭐ Exportar el middleware de reCAPTCHA ⭐
+    verifyRecaptcha,
+    // Exportar los middlewares de validación
     registerValidation,
     loginValidation,
     updateProfileValidation,

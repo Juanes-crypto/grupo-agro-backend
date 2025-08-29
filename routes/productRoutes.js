@@ -1,34 +1,30 @@
 // agroapp-backend/routes/productRoutes.js
-
 const express = require('express');
 const router = express.Router();
 const {
     getProducts,
-    getProductById,
-    getMyProducts,
+    getProduct,
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductsByUser,
+    getUserProducts
 } = require('../controllers/productController');
+
+// ⭐ Asegúrate de que esta importación sea correcta ⭐
+const { uploadProductImage } = require('../config/multer');
+
 const { protect } = require('../middleware/authMiddleware');
-const { uploadProductImage } = require('../config/multer'); 
 
-// 🔐 Rutas privadas (¡PONLAS PRIMERO SI SON MÁS ESPECÍFICAS!)
-// Estas rutas son específicas y no deben ser "atrapadas" por :id
-router.get('/my-products', protect, getMyProducts);
-router.get('/user/:userId', getProductsByUser); 
-router.post('/', protect, uploadProductImage.single('image'), createProduct);
-router.put('/:id', protect, uploadProductImage.single('image'), updateProduct);
-router.delete('/:id', protect, deleteProduct);
+router.route('/')
+    .get(getProducts)
+    .post(protect, uploadProductImage.single('image'), createProduct);
 
-// 📦 Rutas públicas (Más generales, van después de las específicas)
-// La ruta '/' es más específica que '/:id'
-router.get('/', getProducts);
+router.route('/:id')
+    .get(getProduct)
+    .put(protect, uploadProductImage.single('image'), updateProduct)
+    .delete(protect, deleteProduct);
 
-// ⭐ ESTA RUTA DINÁMICA DEBE IR SIEMPRE AL FINAL DE LAS RUTAS QUE EMPIEZAN CON /api/products/ ⭐
-// Esto es crucial para que no intercepte 'my-products' o 'user/:userId'
-router.get('/:id', getProductById);
-
+router.route('/user/:userId')
+    .get(getUserProducts);
 
 module.exports = router;
