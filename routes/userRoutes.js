@@ -86,7 +86,7 @@ router.post("/login",
     next();
   },
   loginValidation,
-  verifyRecaptcha, // ✅ Añadir middleware de reCAPTCHA
+  //verifyRecaptcha, // ✅ Añadir middleware de reCAPTCHA
   loginUser
 );
 

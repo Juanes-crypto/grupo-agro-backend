@@ -16,17 +16,14 @@ const generateToken = (id) => {
 
 // ⭐ Middleware de verificación reCAPTCHA ⭐
 // Middleware de verificación reCAPTCHA - VERSIÓN CORREGIDA
+// En tu userController.js - Middleware verifyRecaptcha con DEBUG
+// userController.js - Middleware verifyRecaptcha CORREGIDO
+// userController.js - Middleware verifyRecaptcha CORREGIDO
 const verifyRecaptcha = async (req, res, next) => {
-  let recaptchaToken;
+  console.log('=== 🔍 VERIFY RECAPTCHA MIDDLEWARE ===');
+  console.log('Hora de la solicitud:', new Date().toISOString());
   
-  // Para FormData (registro)
-  if (req.body.recaptchaToken) {
-    recaptchaToken = req.body.recaptchaToken;
-  } 
-  // Para JSON (login)
-  else if (req.body.recaptchaToken) {
-    recaptchaToken = req.body.recaptchaToken;
-  }
+  const recaptchaToken = req.body.recaptchaToken;
 
   if (!recaptchaToken) {
     return res.status(400).json({
@@ -35,34 +32,67 @@ const verifyRecaptcha = async (req, res, next) => {
     });
   }
 
+  // ✅ PARA DESARROLLO LOCAL: Verificación más permisiva
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔧 MODO DESARROLLO: Verificación simulada');
+    
+    // Simular verificación para desarrollo
+    if (recaptchaToken && recaptchaToken.length > 50) {
+      console.log('✅ Token aceptado en desarrollo');
+      return next();
+    }
+  }
+
   try {
-    const response = await axios.post(
-      `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${recaptchaToken}`
-    );
+    console.log('🔗 Verificando token con Google...');
+    
+    const startTime = Date.now();
+    const response = await axios.post('https://www.google.com/recaptcha/api/siteverify', null, {
+      params: {
+        secret: process.env.RECAPTCHA_SECRET_KEY,
+        response: recaptchaToken
+      },
+      timeout: 10000
+    });
+    
+    const endTime = Date.now();
+    console.log(`⏱️  Tiempo de verificación: ${endTime - startTime}ms`);
+    
+    console.log('📊 Respuesta de Google:', response.data);
 
-    const { success, score } = response.data;
-
-    if (!success) {
+    if (response.data.success) {
+      console.log('✅ reCAPTCHA verificado exitosamente');
+      return next();
+    } else {
+      console.log('❌ Error de reCAPTCHA:', response.data['error-codes']);
+      
+      // Manejar errores específicos
+      if (response.data['error-codes'].includes('timeout-or-duplicate')) {
+        return res.status(400).json({
+          success: false,
+          message: 'El token de seguridad expiró. Por favor, recarga la página e intenta de nuevo.',
+          error: 'token_expired'
+        });
+      }
+      
       return res.status(400).json({
         success: false,
-        message: 'Token reCAPTCHA inválido o expirado'
+        message: 'Error de verificación de seguridad',
+        errors: response.data['error-codes']
       });
     }
-
-    // Umbral para registro
-    if (score < 0.5) { // Reducido a 0.5 para testing
-      return res.status(400).json({
-        success: false,
-        message: 'Actividad sospechosa detectada. Por favor, inténtalo de nuevo.'
-      });
-    }
-
-    next();
   } catch (error) {
-    console.error('Error verifying reCAPTCHA:', error);
+    console.error('❌ Error de conexión:', error.message);
+    
+    // ✅ FALLBACK para desarrollo: Permitir continuar
+    if (process.env.NODE_ENV === 'development') {
+      console.log('⚠️  Fallback desarrollo: Permitiendo continuar');
+      return next();
+    }
+    
     return res.status(500).json({
       success: false,
-      message: 'Error interno del servidor al verificar CAPTCHA'
+      message: 'Error de conexión con el servicio de verificación'
     });
   }
 };

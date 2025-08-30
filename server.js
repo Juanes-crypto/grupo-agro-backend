@@ -58,7 +58,7 @@ app.get('/', (req, res) => {
   res.json({ 
     message: 'API de AgroApp',
     status: 'Operativa',
-    documentation: 'https://github.com/tu-repositorio/documentacion'
+    documentation: 'https://github.com/Juanes-crypto/grupo-agro-backend'
   });
 });
 
@@ -70,7 +70,6 @@ app.listen(port, () => {
   console.log(`Modo: ${process.env.NODE_ENV || 'development'}`.yellow);
   console.log(`URL: http://localhost:${port}`.green);
   console.log(`CORS permitido para frontend:`.blue);
-  console.log('- https://agroapp-ui.onrender.com'.blue);
   console.log('- https://agroapp-frontend.onrender.com'.blue);
   console.log('- http://localhost:5173\n'.blue);
 });
