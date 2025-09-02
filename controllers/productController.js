@@ -126,13 +126,23 @@ const getProductsByUser = asyncHandler(async (req, res) => {
 // @desc    Obtener los productos del usuario autenticado
 // @route   GET /api/products/my-products
 // @access  Private
+// controllers/productController.js - getMyProducts
 const getMyProducts = asyncHandler(async (req, res) => {
     try {
+        console.log('🛒 getMyProducts - User ID:', req.user.id);
+        
         const products = await Product.find({ user: req.user.id })
-            .select('-__v') // Excluir campo innecesario
-            .populate('user', 'name email') // Solo campos necesarios
+            .select('-__v')
+            .populate('user', 'name email')
             .sort({ createdAt: -1 })
-            .lean(); // Mejor rendimiento
+            .lean();
+        
+        console.log('📦 Productos encontrados:', products.length);
+        console.log('📋 Estructura de respuesta:', {
+            success: true,
+            count: products.length,
+            data: products
+        });
         
         res.status(200).json({
             success: true,
@@ -140,6 +150,7 @@ const getMyProducts = asyncHandler(async (req, res) => {
             data: products
         });
     } catch (error) {
+        console.error('❌ Error en getMyProducts:', error);
         res.status(500).json({
             success: false,
             message: 'Error al obtener los productos',
