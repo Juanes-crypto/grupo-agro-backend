@@ -304,6 +304,35 @@ const getMe = asyncHandler(async (req, res) => {
     });
 });
 
+
+// @desc    Obtener perfil del usuario autenticado
+// @route   GET /api/users/profile
+// @access  Private
+const getUserProfile = asyncHandler(async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: user
+        });
+    } catch (error) {
+        console.error('Error en getUserProfile:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener el perfil',
+            error: error.message
+        });
+    }
+});
+
 // @desc    Actualizar el perfil del usuario (incluyendo la foto de perfil)
 // @route   PUT /api/users/profile
 // @access  Private
@@ -394,6 +423,7 @@ const updateUserPremiumStatus = asyncHandler(async (req, res) => {
 module.exports = {
     registerUser,
     loginUser,
+    getUserProfile,
     getMe,
     updateUserProfile,
     updateUserPremiumStatus,

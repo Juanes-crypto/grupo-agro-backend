@@ -1,15 +1,15 @@
-// agroapp-backend/routes/userRoutes.js
 const express = require("express");
 const router = express.Router();
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('../config/cloudinary');
 
-// Importar controladores y middlewares
+// Importar controladores y middlewares - VERSIÓN CORREGIDA
 const {
   registerUser,
   loginUser,
   getMe,
+  getUserProfile,  // ← ¡IMPORTACIÓN AGREGADA!
   updateUserProfile,
   updateUserPremiumStatus,
   verifyRecaptcha,
@@ -57,7 +57,7 @@ router.post("/register",
     { name: 'locationAddress', maxCount: 1 },
     { name: 'locationLongitude', maxCount: 1 },
     { name: 'locationLatitude', maxCount: 1 },
-    { name: 'recaptchaToken', maxCount: 1 } // ✅ Añadir campo para reCAPTCHA
+    { name: 'recaptchaToken', maxCount: 1 }
   ]),
   
   (req, res, next) => {
@@ -75,7 +75,7 @@ router.post("/register",
   },
   
   registerValidation,
-  verifyRecaptcha, // ✅ Añadir middleware de reCAPTCHA
+  verifyRecaptcha,
   registerUser
 );
 
@@ -86,7 +86,6 @@ router.post("/login",
     next();
   },
   loginValidation,
-  //verifyRecaptcha, // ✅ Añadir middleware de reCAPTCHA
   loginUser
 );
 
@@ -95,6 +94,9 @@ router
   .route("/profile")
   .get(protect, getMe)
   .put(protect, upload.single('profilePicture'), updateProfileValidation, updateUserProfile);
+
+// 🆕 Ruta adicional para obtener perfil completo
+router.get('/profile', protect, getUserProfile);
 
 // 🛡️ Actualizar estado premium (solo admin)
 router.put(

@@ -1,54 +1,56 @@
-// agroapp-backend/config/multer.js
+// config/multer.js - ARCHIVO CORREGIDO
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('./cloudinary');
 
-// 1. Configuración para IMÁGENES DE PRODUCTOS
-const productStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'agroapp_products',
-    format: async (req, file) => 'png',
-    public_id: (req, file) => `product-${file.fieldname}-${Date.now()}`,
-  },
-});
-
-const uploadProductImage = multer({ storage: productStorage });
-
-// 2. Configuración para FOTOS DE PERFIL DE USUARIOS
+// ✅ 1. Configuración para imágenes de perfil
 const profilePictureStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'agroapp_profile_pictures',
     format: async (req, file) => 'png',
-    public_id: (req, file) => `user-${Date.now()}-${file.originalname}`,
+    public_id: (req, file) => `profile-${Date.now()}-${file.originalname}`,
   },
 });
 
-const upload = multer({ 
-  storage: profilePictureStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+// ✅ 2. Configuración para imágenes de productos (AÑADE ESTO)
+const productImageStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'agroapp_product_images',
+    format: async (req, file) => 'png',
+    public_id: (req, file) => `product-${Date.now()}-${file.originalname}`,
+  },
 });
 
-// Middleware para registro de usuarios
-const uploadRegister = upload.fields([
-  { name: 'profilePicture', maxCount: 1 },
-  { name: 'name', maxCount: 1 },
-  { name: 'email', maxCount: 1 },
-  { name: 'password', maxCount: 1 },
-  { name: 'phoneNumber', maxCount: 1 },
-  { name: 'showPhoneNumber', maxCount: 1 },
-  { name: 'locationCity', maxCount: 1 },
-  { name: 'locationAddress', maxCount: 1 },
-  { name: 'locationLongitude', maxCount: 1 },
-  { name: 'locationLatitude', maxCount: 1 }
-]);
+// ✅ 3. Middleware para imágenes de perfil
+const uploadProfilePicture = multer({ 
+  storage: profilePictureStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes'), false);
+    }
+  }
+});
 
-// Middleware para actualización de perfil
-const uploadProfileUpdate = upload.single('profilePicture');
+// ✅ 4. Middleware para imágenes de productos (AÑADE ESTO)
+const uploadProductImage = multer({ 
+  storage: productImageStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB para productos
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes'), false);
+    }
+  }
+});
 
+// ✅ 5. Exportar ambos middlewares
 module.exports = {
-  uploadProductImage,      // Para productos
-  uploadRegister,          // Para registro de usuarios
-  uploadProfileUpdate      // Para actualización de perfil
+  uploadProfilePicture,
+  uploadProductImage // ✅ Asegúrate de exportar esto
 };

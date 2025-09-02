@@ -15,15 +15,18 @@ const app = express();
 // Configuración MEJORADA de CORS
 const allowedOrigins = [
   'https://agroapp-frontend.onrender.com',
-  'http://localhost:5173'
+  'http://localhost:5173',
+  'http://localhost:5000'
 ];
 
 // Middleware CORS manual para OPTIONS
 app.options('*', cors({
   origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 
 // Middleware principal
@@ -35,7 +38,9 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Authorization'] // ← IMPORTANTE: Expone Authorization
 }));
 
 app.use(cookieParser());

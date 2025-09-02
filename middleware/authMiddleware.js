@@ -5,14 +5,20 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/User');
 
 const protect = asyncHandler(async (req, res, next) => {
+  console.log('🔍 Middleware auth - Headers recibidos:', req.headers);
+  console.log('🔐 Authorization header:', req.headers.authorization);
   let token;
 
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
+      console.log('✅ Token extraído:', token ? 'PRESENTE' : 'AUSENTE');
+
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+       console.log('🔓 Token decodificado:', decoded);
 
       req.user = await User.findById(decoded.id).select('-password');
+       console.log('👤 Usuario encontrado:', req.user ? req.user.email : 'NO ENCONTRADO');
       // Dentro de protect, después de req.user = await User.findById(decoded.id).select('-password');
 console.log('Middleware Auth - ID del usuario del token decodificado:', decoded.id);
 console.log('Middleware Auth - ID del usuario encontrado en DB (req.user._id):', req.user._id);
@@ -32,6 +38,7 @@ console.log('Middleware Auth - Email del usuario encontrado:', req.user.email); 
   }
 
   if (!token) {
+     console.error('❌ No token provided in headers');
     res.status(401);
     throw new Error('No autorizado, no hay token');
   }

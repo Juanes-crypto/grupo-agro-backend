@@ -37,6 +37,21 @@ const productSchema = mongoose.Schema({
         required: true,
         default: 'unidades',
     },
+    // En models/Product.js, agregar al schema:
+location: {
+  city: {
+    type: String,
+    required: true
+  },
+  address: {
+    type: String,
+    required: true
+  },
+  coordinates: {
+    type: [Number], // [longitud, latitud]
+    index: '2dsphere'
+  }
+},
     imageUrl: { // URL de la imagen del producto en Cloudinary
         type: String,
         required: true,

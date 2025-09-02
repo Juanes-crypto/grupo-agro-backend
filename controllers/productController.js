@@ -9,34 +9,73 @@ const cloudinary = require('../config/cloudinary');
 // @route   GET /api/products
 // @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-    // Se extraen los parámetros de consulta: search, category, isTradable, y AHORA 'user'
-    const { search, category, isTradable, user } = req.query;
+    const { search, category, isTradable, user, latitude, longitude, maxDistance, city } = req.query;
 
-    let query = { isPublished: true }; // Por defecto, solo productos publicados
+    let query = { isPublished: true };
 
-    if (search) {
-        query.name = { $regex: search, $options: 'i' };
+    // Filtros existentes
+    if (search) query.name = { $regex: search, $options: 'i' };
+    if (category) query.category = category;
+    if (isTradable === 'true') query.isTradable = true;
+    if (user) query.user = user;
+
+    // Filtro por ciudad
+    if (city) {
+        query['location.city'] = { $regex: city, $options: 'i' };
     }
 
-    if (category) {
-        query.category = category;
-    }
+    // Filtro por proximidad geográfica
+    if (latitude && longitude) {
+        const userCoords = [parseFloat(longitude), parseFloat(latitude)];
+        const distance = maxDistance ? parseInt(maxDistance) : 50000; // 50km por defecto
 
-    if (isTradable === 'true') {
-        query.isTradable = true;
-    }
-
-    // ⭐ CORRECCIÓN CLAVE AQUÍ: Añadir el filtro por ID de usuario si está presente en la consulta ⭐
-    if (user) {
-        query.user = user;
+        query['location.coordinates'] = {
+            $near: {
+                $geometry: {
+                    type: "Point",
+                    coordinates: userCoords
+                },
+                $maxDistance: distance
+            }
+        };
     }
 
     const products = await Product.find(query)
-                                  .populate('user', 'name reputation isPremium phoneNumber showPhoneNumber')
-                                  .sort({ createdAt: -1 });
+        .populate('user', 'name reputation isPremium phoneNumber showPhoneNumber')
+        .sort({ createdAt: -1 });
+
+    // Agregar información de distancia si hay coordenadas
+    if (latitude && longitude) {
+        const userCoords = [parseFloat(longitude), parseFloat(latitude)];
+        products.forEach(product => {
+            if (product.location && product.location.coordinates) {
+                product.distance = calculateDistance(
+                    userCoords[1], userCoords[0], // lat, lng usuario
+                    product.location.coordinates[1], product.location.coordinates[0] // lat, lng producto
+                );
+            }
+        });
+    }
 
     res.status(200).json(products);
 });
+
+// Función auxiliar para calcular distancia
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radio de la Tierra en km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return R * c; // Distancia en km
+}
+
+function deg2rad(deg) {
+    return deg * (Math.PI/180);
+}
 
 // @desc    Obtener un solo producto por ID
 // @route   GET /api/products/:id
@@ -84,62 +123,67 @@ const getProductsByUser = asyncHandler(async (req, res) => {
 
     res.status(200).json(products);
 });
-// @desc    Obtener los productos del usuario autenticado (NUEVA FUNCIÓN)
+// @desc    Obtener los productos del usuario autenticado
 // @route   GET /api/products/my-products
 // @access  Private
 const getMyProducts = asyncHandler(async (req, res) => {
-    console.log('--- Backend: getMyProducts (Iniciando búsqueda para usuario) ---');
-    console.log('Usuario ID:', req.user.id);
-
-    const products = await Product.find({ user: req.user.id }).select('-__v').sort({ createdAt: -1 });
-
-    console.log('--- Backend: getMyProducts (Productos del usuario encontrados) ---');
-    console.log('Total de productos encontrados para el usuario:', products.length);
-    products.forEach((p, index) => {
-        console.log(`   Producto ${index + 1}: ID=${p._id}, Nombre=${p.name}, Publicado=${p.isPublished}, CreadoEn=${p.createdAt}`);
-    });
-    console.log('----------------------------------------------------');
-
-    res.status(200).json(products);
+    try {
+        const products = await Product.find({ user: req.user.id })
+            .select('-__v') // Excluir campo innecesario
+            .populate('user', 'name email') // Solo campos necesarios
+            .sort({ createdAt: -1 })
+            .lean(); // Mejor rendimiento
+        
+        res.status(200).json({
+            success: true,
+            count: products.length,
+            data: products
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener los productos',
+            error: error.message
+        });
+    }
 });
 
 // @desc    Crear un nuevo producto
 // @route   POST /api/products
 // @access  Private (requiere token de autenticación)
 const createProduct = asyncHandler(async (req, res) => {
-    console.log('ProductController - Iniciando createProduct...');
-    if (req.user) {
-        console.log('ProductController - ID de usuario recibido de req.user:', req.user._id);
-        console.log('ProductController - Email de usuario recibido de req.user:', req.user.email);
-    } else {
-        console.log('ProductController - req.user es UNDEFINED o NULL!');
-    }
-    console.log('ProductController - isPublished recibido en req.body:', req.body.isPublished);
-
-    // ⭐ CAMBIO CLAVE AQUÍ: Desestructurar 'stock' y 'unit' en lugar de 'quantity' ⭐
+    // Obtener la ubicación del usuario
+    const user = await User.findById(req.user.id);
+    
     const { name, description, price, category, stock, unit, isTradable, isPublished } = req.body;
     const imageUrl = req.file ? req.file.path : null;
 
-    // ⭐ Actualizar la validación para los nuevos campos ⭐
-    if (!name || !description || !price || !category || !stock || !unit || !imageUrl) {
+    // Agregar validación de ubicación
+    if (!user.location || !user.location.coordinates) {
         res.status(400);
-        throw new Error('Por favor, completa todos los campos (nombre, descripción, precio, categoría, stock, unidad, imagen).');
+        throw new Error('El usuario debe tener una ubicación registrada');
     }
-    
+
     const product = await Product.create({
         user: req.user.id,
         name,
         description,
         price,
         category,
-        stock, // ⭐ Usar 'stock' ⭐
-        unit,  // ⭐ Usar 'unit' ⭐
+        stock,
+        unit,
         imageUrl,
         isTradable: isTradable === 'true',
-        isPublished: Boolean(isPublished), 
+        isPublished: Boolean(isPublished),
+        location: user.location
     });
 
-    res.status(201).json(product);
+    // ✅ FALTABA ESTA LÍNEA - Responder al cliente
+    res.status(201).json({
+        success: true,
+        data: product,
+        message: 'Producto creado exitosamente'
+    });
 });
 
 // @desc    Actualizar un producto
