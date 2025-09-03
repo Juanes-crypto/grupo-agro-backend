@@ -80,7 +80,7 @@ function deg2rad(deg) {
 // @desc    Obtener un solo producto por ID
 // @route   GET /api/products/:id
 // @access  Public
-const getProductById = asyncHandler(async (req, res) => {
+const getProduct  = asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id).populate('user', 'isPremium phoneNumber showPhoneNumber');
 
     if (!product) {
@@ -290,7 +290,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
 module.exports = {
     getProducts,
-    getProduct: getProductById,          // ← Exporta getProductById como getProduct
+    getProduct,        // ← Exporta getProductById como getProduct
     getMyProducts,
     createProduct,
     updateProduct,
