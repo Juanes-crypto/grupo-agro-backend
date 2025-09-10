@@ -57,11 +57,11 @@ app.use('/api/rentals', require('./routes/rentalRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/barter', require('./routes/barterRoutes'));
-
+app.use('/api/email', require('./routes/emailRoutes'));
 // Ruta raíz
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'API de AgroApp',
+    message: 'API de Campobit',
     status: 'Operativa',
     documentation: 'https://github.com/Juanes-crypto/grupo-agro-backend'
   });

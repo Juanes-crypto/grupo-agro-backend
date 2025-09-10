@@ -1,11 +1,10 @@
-// agroapp-backend/controllers/userController.js
-
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const asyncHandler = require('express-async-handler');
 const axios = require('axios');
 const User = require('../models/User');
 const { check, validationResult } = require('express-validator');
+const { sendEmail, emailTemplates } = require('../services/emailService'); // ✅ AÑADIDO
 
 // ⭐ Función para generar JWT ⭐
 const generateToken = (id) => {
@@ -15,10 +14,6 @@ const generateToken = (id) => {
 };
 
 // ⭐ Middleware de verificación reCAPTCHA ⭐
-// Middleware de verificación reCAPTCHA - VERSIÓN CORREGIDA
-// En tu userController.js - Middleware verifyRecaptcha con DEBUG
-// userController.js - Middleware verifyRecaptcha CORREGIDO
-// userController.js - Middleware verifyRecaptcha CORREGIDO
 const verifyRecaptcha = async (req, res, next) => {
   console.log('=== 🔍 VERIFY RECAPTCHA MIDDLEWARE ===');
   console.log('Hora de la solicitud:', new Date().toISOString());
@@ -244,6 +239,19 @@ const registerUser = asyncHandler(async (req, res) => {
         });
 
         if (user) {
+            // ✅ ENVIAR CORREO DE BIENVENIDA (NUEVO)
+            try {
+                await sendEmail(
+                    user.email,
+                    '¡Bienvenido a AgroApp! 🌱',
+                    emailTemplates.welcome(user.name)
+                );
+                console.log(`✅ Correo de bienvenida enviado a: ${user.email}`);
+            } catch (emailError) {
+                console.error('❌ Error enviando correo de bienvenida:', emailError);
+                // No fallar el registro si el correo falla
+            }
+
             res.status(201).json({
                 user: {
                     _id: user._id,
@@ -303,7 +311,6 @@ const getMe = asyncHandler(async (req, res) => {
         showPhoneNumber: req.user.showPhoneNumber,
     });
 });
-
 
 // @desc    Obtener perfil del usuario autenticado
 // @route   GET /api/users/profile
