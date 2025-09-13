@@ -5,15 +5,17 @@ const { errorHandler } = require('./middleware/errorHandler');
 const connectDB = require('./config/db');
 const colors = require('colors');
 const cors = require('cors');
-const cookieParser = require('cookie-parser'); // Asegúrate de tener esta línea
+const cookieParser = require('cookie-parser');
+const envConfig = require('./config/envConfig'); // ← AÑADIR
 
-const port = process.env.PORT || 5000;
+const port = envConfig.server.port; // ← CAMBIAR
 connectDB();
 
 const app = express();
 
 // Configuración MEJORADA de CORS
 const allowedOrigins = [
+  envConfig.frontend.url, // ← USAR CONFIGURACIÓN CENTRALIZADA
   'https://agroapp-frontend.onrender.com',
   'http://localhost:5173',
   'http://localhost:5000'
@@ -40,7 +42,7 @@ app.use(cors({
   },
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Authorization'] // ← IMPORTANTE: Expone Authorization
+  exposedHeaders: ['Authorization']
 }));
 
 app.use(cookieParser());
@@ -58,12 +60,14 @@ app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/barter', require('./routes/barterRoutes'));
 app.use('/api/email', require('./routes/emailRoutes'));
+
 // Ruta raíz
 app.get('/', (req, res) => {
   res.json({ 
     message: 'API de Campobit',
     status: 'Operativa',
-    documentation: 'https://github.com/Juanes-crypto/grupo-agro-backend'
+    documentation: 'https://github.com/Juanes-crypto/grupo-agro-backend',
+    environment: envConfig.server.env // ← AÑADIR
   });
 });
 
@@ -72,10 +76,10 @@ app.use(errorHandler);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`.cyan.underline);
-  console.log(`Modo: ${process.env.NODE_ENV || 'development'}`.yellow);
+  console.log(`Modo: ${envConfig.server.env}`.yellow); // ← CAMBIAR
   console.log(`URL: http://localhost:${port}`.green);
   console.log(`CORS permitido para frontend:`.blue);
-  console.log('- https://agroapp-frontend.onrender.com'.blue);
+  console.log(`- ${envConfig.frontend.url}`.blue); // ← CAMBIAR
   console.log('- http://localhost:5173\n'.blue);
 });
 

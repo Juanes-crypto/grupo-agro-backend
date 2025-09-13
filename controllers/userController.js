@@ -14,13 +14,17 @@ const generateToken = (id) => {
 };
 
 // ⭐ Middleware de verificación reCAPTCHA ⭐
+// En la función verifyRecaptcha
 const verifyRecaptcha = async (req, res, next) => {
   console.log('=== 🔍 VERIFY RECAPTCHA MIDDLEWARE ===');
   console.log('Hora de la solicitud:', new Date().toISOString());
+  console.log('Entorno:', process.env.NODE_ENV);
+  console.log('Token recibido:', req.body.recaptchaToken ? 'Sí' : 'No');
   
   const recaptchaToken = req.body.recaptchaToken;
 
   if (!recaptchaToken) {
+    console.log('❌ Error: No se recibió token reCAPTCHA');
     return res.status(400).json({
       success: false,
       message: 'Token reCAPTCHA es requerido'
@@ -28,20 +32,28 @@ const verifyRecaptcha = async (req, res, next) => {
   }
 
   // ✅ PARA DESARROLLO LOCAL: Verificación más permisiva
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV !== 'production') {
     console.log('🔧 MODO DESARROLLO: Verificación simulada');
+    console.log('Longitud del token:', recaptchaToken.length);
     
     // Simular verificación para desarrollo
-    if (recaptchaToken && recaptchaToken.length > 50) {
+    if (recaptchaToken && recaptchaToken.length > 10) {
       console.log('✅ Token aceptado en desarrollo');
       return next();
+    } else {
+      console.log('❌ Token demasiado corto para desarrollo');
+      return res.status(400).json({
+        success: false,
+        message: 'Token reCAPTCHA inválido en desarrollo'
+      });
     }
   }
 
+  // ✅ MODO PRODUCCIÓN: Verificación real
   try {
     console.log('🔗 Verificando token con Google...');
+    console.log('Secret key presente:', process.env.RECAPTCHA_SECRET_KEY ? 'Sí' : 'No');
     
-    const startTime = Date.now();
     const response = await axios.post('https://www.google.com/recaptcha/api/siteverify', null, {
       params: {
         secret: process.env.RECAPTCHA_SECRET_KEY,
@@ -49,9 +61,6 @@ const verifyRecaptcha = async (req, res, next) => {
       },
       timeout: 10000
     });
-    
-    const endTime = Date.now();
-    console.log(`⏱️  Tiempo de verificación: ${endTime - startTime}ms`);
     
     console.log('📊 Respuesta de Google:', response.data);
 
@@ -61,15 +70,6 @@ const verifyRecaptcha = async (req, res, next) => {
     } else {
       console.log('❌ Error de reCAPTCHA:', response.data['error-codes']);
       
-      // Manejar errores específicos
-      if (response.data['error-codes'].includes('timeout-or-duplicate')) {
-        return res.status(400).json({
-          success: false,
-          message: 'El token de seguridad expiró. Por favor, recarga la página e intenta de nuevo.',
-          error: 'token_expired'
-        });
-      }
-      
       return res.status(400).json({
         success: false,
         message: 'Error de verificación de seguridad',
@@ -78,12 +78,6 @@ const verifyRecaptcha = async (req, res, next) => {
     }
   } catch (error) {
     console.error('❌ Error de conexión:', error.message);
-    
-    // ✅ FALLBACK para desarrollo: Permitir continuar
-    if (process.env.NODE_ENV === 'development') {
-      console.log('⚠️  Fallback desarrollo: Permitiendo continuar');
-      return next();
-    }
     
     return res.status(500).json({
       success: false,
