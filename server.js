@@ -1,10 +1,7 @@
 const dotenv = require('dotenv').config();
 console.log("MP_TOKEN_PRESENTE:", !!process.env.MERCADO_PAGO_ACCESS_TOKEN); 
 
-// --- CAMBIO 1: Importamos las rutas de pago al principio ---
 const paymentRoutes = require('./routes/paymentRoutes');
-// -----------------------------------------------------------
-
 const express = require('express');
 const path = require('path');
 const { errorHandler } = require('./middleware/errorHandler');
@@ -49,19 +46,15 @@ app.use(cors({
     exposedHeaders: ['Authorization']
 }));
 
-// ---------------------------------------------------------------------
-// --- CAMBIO 2: REGISTRAMOS LA RUTA DEL WEBHOOK ANTES DEL BODY-PARSER ---
-// Esto es para que el webhook de Mercado Pago se procese correctamente.
-// ---------------------------------------------------------------------
-app.use('/api/payments', paymentRoutes);
-// ---------------------------------------------------------------------
+// AHORA, CARGAMOS LOS MIDDLEWARES ANTES DE CUALQUIER RUTA QUE NECESITE req.body
 
-// AHORA, CARGAMOS LOS MIDDLEWARES PARA EL RESTO DE LAS RUTAS
 app.use(cookieParser());
+// ✅ ESTOS DEBEN IR AQUÍ, ANTES DE TODAS LAS RUTAS DE LA API
 app.use(express.json()); // Este middleware procesa los cuerpos JSON
 app.use(express.urlencoded({ extended: false }));
 
-// Rutas de la API (¡IMPORTANTE! Se eliminó la línea de payments de aquí)
+
+// Rutas de la API
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/cart', require('./routes/cartRoutes'));
@@ -72,7 +65,9 @@ app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/barter', require('./routes/barterRoutes'));
 app.use('/api/email', require('./routes/emailRoutes'));
-// ¡La línea de app.use('/api/payments', ...) fue movida hacia arriba!
+
+// ✅ RUTA DE PAGOS MOVIDA AQUÍ: Ahora se ejecuta después del express.json()
+app.use('/api/payments', paymentRoutes); 
 
 // Ruta raíz (Sin cambios)
 app.get('/', (req, res) => {
@@ -99,7 +94,5 @@ app.listen(port, () => {
 
 process.on('unhandledRejection', (err) => {
     console.error(`Error no capturado: ${err.message}`.red);
-    // server.close() puede dar error si server no está definido globalmente,
-    // es más seguro solo salir del proceso en este punto.
     process.exit(1);
 });
