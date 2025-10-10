@@ -3,6 +3,7 @@
 const express = require('express');
 const mercadopago = require('mercadopago'); // Importamos el objeto global
 const Order = require('../models/Order');
+const { protect } = require('../middleware/authMiddleware');
 const router = express.Router();
 
 // ----------------------------------------------------
@@ -20,7 +21,7 @@ mercadopago.configure({
 // (No necesitamos crear una instancia 'client' o 'preferenceModule')
 // ----------------------------------------------------
 
-router.post('/create-order', async (req, res) => {
+router.post('/create-order', protect, async (req, res) => {
     try {
         // AHORA RECIBIMOS EL ID DE LA ORDEN Y LOS ITEMS
         const { orderId, items } = req.body; 
