@@ -76,6 +76,29 @@ location: {
         type: Boolean,
         default: false,
     },
+     viewCount: {
+        type: Number,
+        default: 0
+    },
+    salesCount: {
+        type: Number,
+        default: 0
+    },
+    clickCount: {
+        type: Number,
+        default: 0
+    },
+    conversionRate: {
+        type: Number,
+        default: 0
+    },
+    // Para tracking mensual
+    monthlyStats: [{
+        month: String,
+        views: Number,
+        sales: Number,
+        revenue: Number
+    }]
 }, {
     timestamps: true, // Agrega createdAt y updatedAt automáticamente
 });

@@ -13,7 +13,7 @@ const transporter = nodemailer.createTransport({
 const sendEmail = async (to, subject, html) => {
   try {
     const mailOptions = {
-      from: `"AgroApp Support" <${process.env.EMAIL_USER}>`,
+      from: `"Campo Bit Support" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,
@@ -32,7 +32,7 @@ const sendEmail = async (to, subject, html) => {
 const emailTemplates = {
   welcome: (name) => `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-      <h2 style="color: #2d5c2d; text-align: center;">¡Bienvenido a AgroApp, ${name}! 🌱</h2>
+      <h2 style="color: #2d5c2d; text-align: center;">¡Bienvenido a Campo Bit, ${name}! 🌱</h2>
       <p>Gracias por unirte a nuestra comunidad de trueques agrícolas.</p>
       <p>Ahora puedes:</p>
       <ul>
@@ -49,13 +49,13 @@ const emailTemplates = {
         ¡Felices trueques! 🚜
       </p>
       <br>
-      <p>Saludos,<br>El equipo de AgroApp</p>
+      <p>Saludos,<br>El equipo de Campo Bit</p>
     </div>
   `,
   
   newsletter: (content, name = 'Usuario') => `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-      <h2 style="color: #2d5c2d; text-align: center;">🌱 Novedades de AgroApp</h2>
+      <h2 style="color: #2d5c2d; text-align: center;">🌱 Novedades de Campo Bit</h2>
       <p>Hola ${name},</p>
       ${content}
       <br>
@@ -66,7 +66,7 @@ const emailTemplates = {
         ¿No quieres recibir estos correos? <a href="https://agroapp-frontend.onrender.com/profile">Actualiza tus preferencias en tu perfil</a>
       </p>
       <br>
-      <p>Saludos,<br>El equipo de AgroApp</p>
+      <p>Saludos,<br>El equipo de CampoBit</p>
     </div>
   `
 };

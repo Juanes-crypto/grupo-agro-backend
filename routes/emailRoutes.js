@@ -85,7 +85,7 @@ router.post('/test', async (req, res) => {
 
     await sendEmail(
       email,
-      '✅ Prueba de AgroApp Email',
+      '✅ Prueba de CampoBit Email',
       emailTemplates.welcome('Usuario de Prueba')
     );
 
