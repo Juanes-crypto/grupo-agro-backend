@@ -1,6 +1,8 @@
 // agroapp-backend/models/User.js
 
 const mongoose = require("mongoose");
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 const userSchema = mongoose.Schema(
   {
@@ -101,6 +103,8 @@ const userSchema = mongoose.Schema(
     lastFailedLogin: {
       type: Date,
     },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
   },
   {
     timestamps: true,
@@ -139,6 +143,26 @@ userSchema.methods.resetLoginAttempts = function() {
         $set: { loginAttempts: 0 },
         $unset: { lockUntil: 1, lastFailedLogin: 1 }
     });
+};
+
+userSchema.methods.getResetPasswordToken = function() {
+    // Generar el token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    // Hashear el token y guardarlo en la BD
+    this.resetPasswordToken = crypto
+        .createHash('sha256')
+        .update(resetToken)
+        .digest('hex');
+    
+    // Establecer tiempo de expiración (10 minutos)
+    this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
+
+    console.log('Token generado (para email):', resetToken);
+    console.log('Token hasheado (para BD):', this.resetPasswordToken);
+
+    // Devolvemos el token SIN hashear (para enviarlo por email)
+    return resetToken;
 };
 
 module.exports = mongoose.model("User", userSchema);

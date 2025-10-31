@@ -17,10 +17,10 @@ const {
     registerValidation,
     loginValidation,
     updateProfileValidation,
-    // ⭐ NUEVAS IMPORTACIONES
     updatePayoutDetails, 
-    updatePayoutValidation, 
-    // ❌ ELIMINADAS: initMpOAuth, mpOAuthCallback
+    updatePayoutValidation,
+    forgotPassword,
+    resetPassword,
 } = require('../controllers/userController');
 
 const processLocation = require('../middleware/processLocation');
@@ -93,6 +93,9 @@ router.post("/login",
     loginValidation,
     loginUser
 );
+
+router.post("/forgot-password", forgotPassword);
+router.put("/reset-password/:token", resetPassword);
 
 // 🔒 Rutas protegidas - Perfil de usuario (MANTENER)
 router

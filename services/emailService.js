@@ -68,8 +68,32 @@ const emailTemplates = {
       <br>
       <p>Saludos,<br>El equipo de CampoBit</p>
     </div>
+  `,
+
+  resetPassword: (resetUrl, name) => `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+      <h2 style="color: #2d5c2d; text-align: center;">Solicitud de Reseteo de Contraseña</h2>
+      <p>Hola ${name},</p>
+      <p>Recibimos una solicitud para restablecer tu contraseña en CampoBit. Si no hiciste esta solicitud, puedes ignorar este correo.</p>
+      <p>Para restablecer tu contraseña, haz clic en el siguiente enlace. Este enlace es válido solo por 10 minutos:</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${resetUrl}" style="background-color: #f0ad4e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+          Restablecer Contraseña
+        </a>
+      </div>
+      <p style="color: #666; font-size: 14px; text-align: center;">
+        Si el botón no funciona, copia y pega la siguiente URL en tu navegador:
+      </p>
+      <p style="color: #666; font-size: 12px; text-align: center; word-break: break-all;">
+        ${resetUrl}
+      </p>
+      <br>
+      <p>Saludos,<br>El equipo de CampoBit</p>
+    </div>
   `
+
 };
+
 
 module.exports = {
   sendEmail,
